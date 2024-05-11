@@ -1,7 +1,7 @@
 import random
 import zlib
 
-# Funkcja generująca losowy ciąg bitów o określonej długośc
+# Funkcja generująca losowy ciąg bitów o określonej długościi
 def generate_bit_string(length):
     return ''.join(str(random.randint(0, 1)) for _ in range(length))
 
