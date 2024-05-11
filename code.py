@@ -11,14 +11,14 @@ def add_crc(data):
     crc_bytes = crc.to_bytes(4, byteorder='big')    ## Konwersja sumy kontrolnej na ciąg bitów i dołączenie jej na końcu danych
     return data + format(int.from_bytes(crc_bytes, byteorder='big'), '032b')  # Konwersja na ciąg bitów
 
-# Funkcja symulująca transmisję danych z zadanym współczynnikiem błędów
-
 # Funkcja dodająca bit parzystości do danych
 def add_parity_bit(data):
     # Sprawdzenie liczby jedynek w ciągu danych
     ones_count = data.count('1')
     # Dodanie bitu parzystości na końcu danych
     return data + str(ones_count % 2)
+
+# Funkcja symulująca transmisję danych z zadanym współczynnikiem błędów
 def transmit(data, error_rate):
     transmitted_data = ''
     for bit in data:
@@ -38,13 +38,12 @@ def verify_parity_bit(data):
     # Porównanie liczby jedynek z bitowym parzystością
     return (ones_count % 2 == 0 and parity_bit == '0') or (ones_count % 2 != 0 and parity_bit == '1')
 
-
 # Funkcja weryfikująca sumę kontrolną CRC danych
 def verify_crc(data):
     received_crc = data[-32:]   # Pobranie sumy kontrolnej CRC (32 bity) z danych
     received_data = data[:-32] # Pobranie danych bez sumy kontrolnej
-    #print("", data, "\n", received_crc, "\n", received_data)
-    calculated_crc = zlib.crc32(received_data.encode())
+    calculated_crc = zlib.crc32(received_data.encode())  # Obliczenie sumy kontrolnej CRC dla otrzymanych danych
+    # Porównanie obliczonej sumy kontrolnej z otrzymaną
     return calculated_crc == int(received_crc, 2)
 
 # Funkcja symulująca transmisję danych i weryfikująca sumę kontrolną CRC
@@ -60,6 +59,7 @@ def simulate_transmission_crc(original_data, error_rate):
         # W przypadku błędów transmisji zwrócenie danych wraz z sumą kontrolną CRC oraz wyniku negatywnego
         return transmitted_data, data_with_crc, False
 
+# Funkcja symulująca transmisję danych i weryfikująca bit parzystości
 def simulate_transmission_parity(original_data, error_rate):
     # Dodanie bitu parzystości do oryginalnych danych
     data_with_parity = add_parity_bit(original_data)
@@ -72,12 +72,23 @@ def simulate_transmission_parity(original_data, error_rate):
         # W przypadku błędów transmisji zwrócenie danych oraz wyniku negatywnego
         return transmitted_data, False
 
+# Funkcja pokazująca różnice bitów
+def show_bit_difference(original_data, transmitted_data):
+    differences = ''
+    for original_bit, transmitted_bit in zip(original_data, transmitted_data):
+        if original_bit != transmitted_bit:
+            differences += '1'
+        else:
+            differences += '0'
+    return differences
+
 # Przykładowe użycie
 length = 50  # Długość ciągu bitów
 error_rate = 0.01  # Przykładowy współczynnik błędów
 
 original_data = generate_bit_string(length)
 print("Wygenerowany ciąg bitów do transmisji:\n", original_data)
+
 
 # Symulacja transmisji danych z sumą kontrolną CRC
 transmitted_data_crc, data_with_crc, success_crc = simulate_transmission_crc(original_data, error_rate)
@@ -86,15 +97,21 @@ transmitted_data_crc, data_with_crc, success_crc = simulate_transmission_crc(ori
 transmitted_data_parity, success_parity = simulate_transmission_parity(original_data, error_rate)
 
 if success_crc:
-    print("Transmisja CRC udana!")
+    print("\nTransmisja CRC udana!")
 else:
-    print("Błędy transmisji CRC. Prośba o ponowne przesłanie danych.\n")
+    print("\nBłędy transmisji CRC. Prośba o ponowne przesłanie danych.\n")
     print("Dane z CRC po transmisji:\n", data_with_crc)
     y = int(data_with_crc, 2) ^ int(transmitted_data_crc, 2)
     print("Różnica CRC:\n", bin(y)[2:].zfill(len(transmitted_data_crc)))
 
+# Wypisanie danych z bitami parzystości przed transmisją
+print("\nDane z bitem parzystości przed transmisją:\n", add_parity_bit(original_data))
 if success_parity:
-    print("Transmisja z bitem parzystości udana!")
+    print("\nTransmisja z bitem parzystości udana!")
 else:
     print("Błędy transmisji z bitem parzystości. Prośba o ponowne przesłanie danych.\n")
     print("Dane po transmisji z bitem parzystości:\n", transmitted_data_parity)
+
+# Pokazanie różnic bitów parzystości
+if not success_parity:
+    print("Różnice w bitach parzystości:\n", show_bit_difference(original_data, transmitted_data_parity))
