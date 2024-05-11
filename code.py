@@ -44,6 +44,22 @@ def simulate_transmission(original_data, error_rate):
         # W przypadku błędów transmisji zwrócenie danych wraz z sumą kontrolną CRC oraz wyniku negatywnego
         return transmitted_data, data_with_crc, False
 
+def verify_parity_bit(data):
+    # Pobranie bitu parzystości z danych
+    parity_bit = data[-1]
+    # Pobranie danych bez bitu parzystości
+    data_without_parity = data[:-1]
+    # Sprawdzenie liczby jedynek w danych
+    ones_count = data_without_parity.count('1')
+    # Porównanie liczby jedynek z bitowym parzystością
+    return (ones_count % 2 == 0 and parity_bit == '0') or (ones_count % 2 != 0 and parity_bit == '1')
+
+def add_parity_bit(data):
+    # Sprawdzenie liczby jedynek w ciągu danych
+    ones_count = data.count('1')
+    # Dodanie bitu parzystości na końcu danych
+    return data + str(ones_count % 2)
+
 # Przykładowe użycie
 length = 50  # Długość ciągu bitów
 error_rate = 0.01  # Przykładowy współczynnik błędów
