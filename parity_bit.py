@@ -1,4 +1,4 @@
-from utils import generate_bit_string, show_bit_difference, transmit
+from utils import transmit
 
 # Funkcja dodająca bit parzystości do danych
 def add_parity_bit(data):
@@ -17,6 +17,6 @@ def simulate_transmission_parity(original_data, error_rate):
     data_with_parity = add_parity_bit(original_data)
     transmitted_data = transmit(data_with_parity, error_rate)
     if verify_parity_bit(transmitted_data):
-        return transmitted_data[:-1], True
+        return transmitted_data[:-1], data_with_parity, True
     else:
-        return transmitted_data, False
+        return transmitted_data, data_with_parity, False
