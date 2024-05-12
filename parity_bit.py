@@ -1,3 +1,4 @@
+from utils import generate_bit_string, show_bit_difference, transmit
 
 # Funkcja dodająca bit parzystości do danych
 def add_parity_bit(data):

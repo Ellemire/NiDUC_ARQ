@@ -1,4 +1,5 @@
 import zlib
+from utils import transmit
 
 # Funkcja dodająca sumę kontrolną CRC do danych
 def add_crc(data):
