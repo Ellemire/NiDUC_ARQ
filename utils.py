@@ -1,10 +1,10 @@
 import random
 
-# Funkcja generująca losowy ciąg bitów o określonej długości
+# Function to generate a random bit string of a specified length
 def generate_bit_string(length):
     return ''.join(str(random.randint(0, 1)) for _ in range(length))
 
-# Funkcja pokazująca różnice bitów
+# Function to show bit differences
 def show_bit_difference(original_data, transmitted_data):
     differences = ''
     for original_bit, transmitted_bit in zip(original_data, transmitted_data):
@@ -14,7 +14,7 @@ def show_bit_difference(original_data, transmitted_data):
             differences += '0'
     return differences
 
-# Funkcja symulująca transmisję danych z zadanym współczynnikiem błędów
+# Function to simulate data transmission with a given error rate
 def transmit(data, error_rate):
     transmitted_data = ''
     for bit in data:

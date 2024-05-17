@@ -7,33 +7,31 @@ length = 50
 error_rate = 0.01
 
 original_data = generate_bit_string(length)
-print("Wygenerowany ciąg bitów do transmisji:\n", original_data)
+print("Generated bit string for transmission:\n", original_data)
 
-# Symulacja transmisji danych z sumą kontrolną CRC
+# Simulating data transmission with CRC checksum
 transmitted_data_crc, data_with_crc, success_crc = simulate_transmission_crc(original_data, error_rate)
 while not success_crc:
-    print("\nBłędy transmisji CRC. Prośba o ponowne przesłanie danych.\n")
-    print("Dane z CRC po transmisji:\n", data_with_crc)
-    y = int(data_with_crc, 2) ^ int(transmitted_data_crc, 2)
-    print("Różnica CRC:\n", bin(y)[2:].zfill(len(transmitted_data_crc)))
+    print("\nCRC transmission errors. Requesting data resend.\n")
+    print("Data with CRC after transmission:\n", data_with_crc)
+    print("CRC differences:\n", show_bit_difference(data_with_crc, transmitted_data_crc))
     transmitted_data_crc, data_with_crc, success_crc = simulate_transmission_crc(original_data, error_rate)
-print("\nTransmisja CRC udana!")
+print("\nCRC transmission successful!")
 
-
-# Symulacja transmisji danych z bitem parzystości
+# Simulating data transmission with parity bit
 transmitted_data_parity, data_with_parity, success_parity = simulate_transmission_parity(original_data, error_rate)
 while not success_parity:
-    print("\nBłędy transmisji z bitem parzystości. Prośba o ponowne przesłanie danych.")
-    print("Dane po transmisji z bitem parzystości:\n", transmitted_data_parity)
-    print("Różnice w bitach parzystości:\n", show_bit_difference(original_data, transmitted_data_parity))
-    transmitted_data_parity, data_with_parity ,success_parity = simulate_transmission_parity(original_data, error_rate)
-print("\nTransmisja z bitem parzystości udana!")
+    print("\nParity bit transmission errors. Requesting data resend.")
+    print("Data after transmission with parity bit:\n", transmitted_data_parity)
+    print("Parity bit differences:\n", show_bit_difference(data_with_parity, transmitted_data_parity))
+    transmitted_data_parity, data_with_parity, success_parity = simulate_transmission_parity(original_data, error_rate)
+print("\nParity bit transmission successful!")
 
-# Symulacja transmisji danych z MD5
-md5_before, md5_after, success_md5 = simulate_transmission_md5(original_data, error_rate)
+# Simulating data transmission with MD5
+transmitted_data_md5, data_with_md5, success_md5 = simulate_transmission_md5(original_data, error_rate)
 while not success_md5:
-    print("\nBłędy transmisji MD5. Prośba o ponowne przesłanie danych.")
-    print("Wartość MD5 dla danych przed transmisją:", md5_before)
-    print("Wartość MD5 dla danych po transmisji:", md5_after)
-    md5_before, md5_after, success_md5 = simulate_transmission_md5(original_data, error_rate)
-print("\nTransmisja MD5 udana!")
+    print("\nMD5 transmission errors. Requesting data resend.")
+    print("MD5 value for data after transmission:", transmitted_data_md5)
+    print("MD5 differences:\n", show_bit_difference(data_with_md5, transmitted_data_md5))
+    transmitted_data_md5, data_with_md5, success_md5 = simulate_transmission_md5(original_data, error_rate)
+print("\nMD5 transmission successful!")
