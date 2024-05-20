@@ -3,6 +3,9 @@ from parity_bit import add_parity_bit, verify_parity_bit
 from crc import add_crc, verify_crc
 from md5 import add_md5, verify_md5
 import time, asyncio, random
+import sys
+
+sys.setrecursionlimit(50000)
 
 #parametry zakłócenia, ARQ, error detection, różne sposoby zakłócenia, podział na paczki
 #statystyki czy wykryto wszystkie błędy, liczba błędów,
@@ -14,8 +17,8 @@ class PC:
         self.recived_data = []              # received data
         self.__data_segment_index = 0       # index of the currently sent segment (next segment to be sent)
         self.__ACK_event = asyncio.Event()  # for handling asynchronous events: ACK reception event
-        self.__error_detection_code = 1     # 0 - none, 1 - parity bit, 2 - crc, 3 - md5
-        self.__ARQ_protocol = 3              # 0 - UDP, 1 - stop&wait, 2 - go back N, 3 - selective repeat
+        self.__error_detection_code = 3     # 0 - none, 1 - parity bit, 2 - crc, 3 - md5
+        self.__ARQ_protocol = 2             # 0 - UDP, 1 - stop&wait, 2 - go back N, 3 - selective repeat
 
 # Function to generate data and store it in the original_data array - raw data to be sent
     def generate_data(self, length, number_of_data):
@@ -52,7 +55,7 @@ class PC:
 # Function to send a segment
     async def data_sending(self, receiver, data, index):
         # Simulating data transmission
-        error_rate = 0.1
+        error_rate = 0.05
         print(f"{self.name} sending data to {receiver.name}:    {data}")
         data = transmit(data, error_rate)                   # Simulating transmission with error probability
         await asyncio.sleep(0)                              # Simulating transmission time
@@ -117,20 +120,30 @@ class PC:
         print(self.buffered_data)
 
     def set_ARQ_protocol(self):
-        protocol = input("Choose ARQ protocol: \n0 - UDP, 1 - stop&wait, 2 - go-back-N, 3 - selective repet: ")
-        if protocol in {0, 1, 2, 3}:
-            self.__ARQ_protocol = protocol
-        else:
-            print("Unvalid protocol. Default protocol set. (UTP)")
+        try:
+            protocol = int(
+                input("Choose ARQ protocol: \n0 - UDP, 1 - stop&wait, 2 - go-back-N, 3 - selective repeat: "))
+            if protocol in {0, 1, 2, 3}:
+                self.__ARQ_protocol = protocol
+            else:
+                print("Invalid protocol. Default protocol set. (UDP)")
+                self.__ARQ_protocol = 0
+        except ValueError:
+            print("Invalid input. Default protocol set. (UDP)")
             self.__ARQ_protocol = 0
 
     def set_error_detection_code(self):
-        detection_code = input("Choose error_detection_code:\n0 - none, 1 - parity bit, 2 - crc, 3 - mr5")
-        if detection_code in {0, 1, 2, 3}:
-            self.__error_detection_code = detection_code
-        else:
-            print("Unvalid error detection code. Default error detection code set. (parity bit)")
-            self.__ARQ_protocol = 1
+        try:
+            detection_code = int(input("Choose error_detection_code:\n0 - none, 1 - parity bit, 2 - crc, 3 - md5: "))
+            if detection_code in {0, 1, 2, 3}:
+                self.__error_detection_code = detection_code
+            else:
+                print("Invalid error detection code. Default error detection code set. (parity bit)")
+                self.__error_detection_code = 1
+        except ValueError:
+            print("Invalid input. Default error detection code set. (parity bit)")
+            self.__error_detection_code = 1
+
 
 # drukowanie wysłanych i odebranych danych do porównania
 async def print_transmition_data(sender, reciver):
@@ -144,7 +157,6 @@ async def main():
 
     data_to_send = pc1.generate_data(length=10, number_of_data=10)      # Generating data to be sent
 
-    # asyncio.create_task(pc1.send_data(pc2, start_index=0, end_index=10))
     await pc1.send_data(pc2, start_index=0, end_index=10)               # Sending data from PC1 to PC2
 
     await print_transmition_data(pc1, pc2)
