@@ -17,8 +17,8 @@ class PC:
         self.recived_data = []              # received data
         self.__data_segment_index = 0       # index of the currently sent segment (next segment to be sent)
         self.__ACK_event = asyncio.Event()  # for handling asynchronous events: ACK reception event
-        self.__error_detection_code = 3     # 0 - none, 1 - parity bit, 2 - crc, 3 - md5
-        self.__ARQ_protocol = 2             # 0 - UDP, 1 - stop&wait, 2 - go back N, 3 - selective repeat
+        self.__error_detection_code = 1     # 0 - none, 1 - parity bit, 2 - crc, 3 - md5
+        self.__ARQ_protocol = 1             # 0 - UDP, 1 - stop&wait, 2 - go back N, 3 - selective repeat
 
 # Function to generate data and store it in the original_data array - raw data to be sent
     def generate_data(self, length, number_of_data):
@@ -55,7 +55,7 @@ class PC:
 # Function to send a segment
     async def data_sending(self, receiver, data, index):
         # Simulating data transmission
-        error_rate = 0.05
+        error_rate = 0.1
         print(f"{self.name} sending data to {receiver.name}:    {data}")
         data = transmit(data, error_rate)                   # Simulating transmission with error probability
         await asyncio.sleep(0)                              # Simulating transmission time
@@ -113,6 +113,7 @@ class PC:
             print(f"Resending data. Data segment index: {index}")
             await self.data_sending(sender, self.buffered_data[index], index)
         if self.__ARQ_protocol == 2:
+            self.buffered_data.pop(index)
             print(f"Go back {index} and resending all data.")
             self.__data_segment_index = index - 1                 # -1 bo indeks zaraz będzie inkrementowany
 
