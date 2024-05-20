@@ -1,7 +1,7 @@
 from utils import transmit, generate_bit_string
 from parity_bit import add_parity_bit, verify_parity_bit
 from crc import add_crc, verify_crc
-from md5 import calculate_md5
+from md5 import add_md5, verify_md5
 import time, asyncio, random
 
 #parametry zakłócenia, ARQ, error detection, różne sposoby zakłócenia, podział na paczki
@@ -36,7 +36,7 @@ class PC:
             elif self.__error_detection_code == 2:
                 self.buffered_data.append(add_crc(self.original_data[start_index]))
             elif self.__error_detection_code == 3:
-                self.buffered_data.append(calculate_md5(self.original_data[start_index]))
+                self.buffered_data.append(add_md5(self.original_data[start_index]))
             else:
                 self.buffered_data.append(self.original_data[start_index])
 
@@ -64,14 +64,14 @@ class PC:
         await asyncio.sleep(0)                   # Simulating transmission time
         if self.__ARQ_protocol != 0:
             if self.__error_detection_code == 1:
-                if(verify_parity_bit(data)):
+                if verify_parity_bit(data):
                     await self.send_ACK(sender, index)
                     self.buffered_data.append(data)
                     self.recived_data.append(data[:-1])
                 else:
                     await self.send_NACK(sender, index)
             elif self.__error_detection_code == 2:
-                if (verify_crc(data)):
+                if verify_crc(data):
                     await self.send_ACK(sender, index)
                     self.buffered_data.append(data)
                     self.recived_data.append(data[:-32])
@@ -79,8 +79,12 @@ class PC:
                     await self.send_NACK(sender, index)
                     #WSTAW MD5
             elif self.__error_detection_code == 3:
-                calculate_md5(data)
-                self.buffered_data.append(data)
+                if verify_md5(data):
+                    await self.send_ACK(sender, index)
+                    self.buffered_data.append(data)
+                    self.recived_data.append(data[:-128])
+                else:
+                    await self.send_NACK(sender, index)
             else:
                 self.buffered_data.append(data)
                 self.recived_data.append(data)
