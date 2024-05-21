@@ -14,11 +14,11 @@ class PC:
         self.name = name                    # computer name
         self.buffered_data = []             # buffered memory
         self.original_data = []             # original data generated for transmission (for comparison)
-        self.recived_data = []              # received data
+        self.received_data = []              # received data
         self.__data_segment_index = 0       # index of the currently sent segment (next segment to be sent)
         self.__ACK_event = asyncio.Event()  # for handling asynchronous events: ACK reception event
-        self.__error_detection_code = 1     # 0 - none, 1 - parity bit, 2 - crc, 3 - md5
-        self.__ARQ_protocol = 1             # 0 - UDP, 1 - stop&wait, 2 - go back N, 3 - selective repeat
+        self.__error_detection_code = 2     # 0 - none, 1 - parity bit, 2 - crc, 3 - md5
+        self.__ARQ_protocol = 2            # 0 - UDP, 1 - stop&wait, 2 - go back N, 3 - selective repeat
 
 # Function to generate data and store it in the original_data array - raw data to be sent
     def generate_data(self, length, number_of_data):
@@ -70,14 +70,14 @@ class PC:
                 if verify_parity_bit(data):
                     await self.send_ACK(sender, index)
                     self.buffered_data.append(data)
-                    self.recived_data.append(data[:-1])
+                    self.received_data.append(data[:-1])
                 else:
                     await self.send_NACK(sender, index)
             elif self.__error_detection_code == 2:
                 if verify_crc(data):
                     await self.send_ACK(sender, index)
                     self.buffered_data.append(data)
-                    self.recived_data.append(data[:-32])
+                    self.received_data.append(data[:-32])
                 else:
                     await self.send_NACK(sender, index)
                     #WSTAW MD5
@@ -85,23 +85,23 @@ class PC:
                 if verify_md5(data):
                     await self.send_ACK(sender, index)
                     self.buffered_data.append(data)
-                    self.recived_data.append(data[:-128])
+                    self.received_data.append(data[:-128])
                 else:
                     await self.send_NACK(sender, index)
             else:
                 self.buffered_data.append(data)
-                self.recived_data.append(data)
+                self.received_data.append(data)
         else:
-            self.recived_data.append(data)
+            self.received_data.append(data)
 
-    async def send_NACK(self, reciver, index):
+    async def send_NACK(self, receiver, index):
         print(f"{self.name} is sending NACK. Data segment index: {index}")
-        await reciver.recive_NACK(self, index)
+        await receiver.recive_NACK(self, index)
 
     #dodać do eksperymentu błędy ACK
-    async def send_ACK(self, reciver, index):
+    async def send_ACK(self, receiver, index):
         print(f"{self.name} is sending ACK. Data segment index: {index}")
-        await reciver.recive_ACK(self, index)
+        await receiver.recive_ACK(self, index)
     async def recive_ACK(self, sender, index):
         print(f"{self.name} recived ACK. Data segment index: {index}")
         if self.__ARQ_protocol == 1:
@@ -147,9 +147,26 @@ class PC:
 
 
 # drukowanie wysłanych i odebranych danych do porównania
-async def print_transmition_data(sender, reciver):
+async def print_transmition_data(sender, receiver):
     print(f"\nOriginal data by {sender.name}: {sender.original_data}")  # Displaying data sent by PC1
-    print(f"Recived  data by {reciver.name}: {reciver.recived_data}")   # Displaying data received by PC2
+    print(f"Recived  data by {receiver.name}: {receiver.received_data}")   # Displaying data received by PC2
+
+async def compare_data(sender, receiver):
+    original_data = sender.original_data
+    received_data = receiver.received_data
+
+    if len(original_data) != len(received_data):
+        print("The data arrays have different lengths.")
+        return
+
+    total_elements = len(original_data)
+    same_elements = sum(1 for o, r in zip(original_data, received_data) if o == r)
+    different_elements = total_elements - same_elements
+
+    print(f"Total transmitted data: {total_elements}")
+    print(f"Number of successfully transmitted data: {same_elements}")
+    print(f"Number of incorrectly transmitted data: {different_elements}")
+
 
 # przykład użycia
 async def main():
@@ -161,5 +178,7 @@ async def main():
     await pc1.send_data(pc2, start_index=0, end_index=10)               # Sending data from PC1 to PC2
 
     await print_transmition_data(pc1, pc2)
+
+    await compare_data(pc1, pc2)
 
 asyncio.run(main())
