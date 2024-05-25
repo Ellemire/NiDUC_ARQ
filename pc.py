@@ -1,4 +1,4 @@
-from utils import transmit, generate_bit_string
+from utils import transmit, generate_bit_string, show_bit_difference
 from parity_bit import add_parity_bit, verify_parity_bit
 from crc import add_crc, verify_crc
 from md5 import add_md5, verify_md5
@@ -21,7 +21,7 @@ class PC:
         self.__data_segment_index = 0       # index of the currently sent segment (next segment to be sent)
         self.__ACK_event = asyncio.Event()  # for handling asynchronous events: ACK reception event
         self.__error_detection_code = 2     # 0 - none, 1 - parity bit, 2 - crc, 3 - md5
-        self.__ARQ_protocol = 2            # 0 - UDP, 1 - stop&wait, 2 - go back N, 3 - selective repeat
+        self.__ARQ_protocol = 2             # 0 - UDP, 1 - stop&wait, 2 - go back N, 3 - selective repeat
 
 # Function to generate data and store it in the original_data array - raw data to be sent
     def generate_data(self):
@@ -109,7 +109,7 @@ class PC:
     async def recive_ACK(self, sender, index):
         print(f"{self.name} recived ACK. Data segment index: {index}")
         if self.__ARQ_protocol == 1:
-            self.__ACK_event.set();
+            self.__ACK_event.set()
     async def recive_NACK(self, sender, index):
         print(f"{self.name} recived NACK. Data segment index: {index}")
         self.NACK = True
@@ -124,28 +124,26 @@ class PC:
     def print_buffered_data(self):
         print(self.buffered_data)
 
-    def set_error_rate(self):
+    def set_error_rate(self, error_rate):
         try:
-            self.__error_rate = float(input("Enter error rate (as a number between 0 and 1): "))
+            self.__error_rate = error_rate
         except ValueError:
             print("Invalid input. Please enter a valid number.")
 
-    def set_data_size(self):
+    def set_data_size(self, data_size):
         try:
-            self.__data_size = int(input("Enter data size (as a positive integer): "))
+            self.__data_size = data_size
         except ValueError:
             print("Invalid input. Please enter a valid number.")
 
-    def set_data_number(self):
+    def set_data_number(self, data_number):
         try:
-            self.__data_number = int(input("Enter number of data (as a positive integer): "))
+            self.__data_number = data_number
         except ValueError:
             print("Invalid input. Please enter a valid number.")
 
-    def set_arq_protocol(self):
+    def set_arq_protocol(self, protocol):
         try:
-            protocol = int(
-                input("Choose ARQ protocol: \n0 - UDP, 1 - stop&wait, 2 - go-back-N, 3 - selective repeat: "))
             if protocol in {0, 1, 2, 3}:
                 self.__ARQ_protocol = protocol
             else:
@@ -155,9 +153,8 @@ class PC:
             print("Invalid input. Default protocol set. (UDP)")
             self.__ARQ_protocol = 0
 
-    def set_error_detection_code(self):
+    def set_error_detection_code(self, detection_code):
         try:
-            detection_code = int(input("Choose error_detection_code:\n0 - none, 1 - parity bit, 2 - crc, 3 - md5: "))
             if detection_code in {0, 1, 2, 3}:
                 self.__error_detection_code = detection_code
             else:
@@ -166,6 +163,14 @@ class PC:
         except ValueError:
             print("Invalid input. Default error detection code set. (parity bit)")
             self.__error_detection_code = 1
+
+    def display_current_settings(self):
+        print(f"\n--- Current Settings ---")
+        print(f"Error Rate: {self.__error_rate}")
+        print(f"Data Size: {self.__data_size}")
+        print(f"Number of Data: {self.__data_number}")
+        print(f"ARQ Protocol: {self.__ARQ_protocol}")
+        print(f"Error Detection Code: {self.__error_detection_code}")
 
 
 # drukowanie wysłanych i odebranych danych do porównania
@@ -203,24 +208,37 @@ async def main():
         print("4. Set Data Size")
         print("5. Set Number Of Data")
         print("6. Run Data Transmission")
-        print("7. Exit")
-        choice = input("Enter your choice (1-7): ")
+        print("7. Display Current Settings")
+        print("8. Exit")
+        choice = input("Enter your choice (1-8): ")
 
         if choice == '1':
-            pc1.set_error_rate()
+            error_rate = float(input("Enter error rate (as a number between 0 and 1): "))
+            pc1.set_error_rate(error_rate)
+            pc2.set_error_rate(error_rate)
         elif choice == '2':
-            pc1.set_error_detection_code()
+            detection_code = int(input("Choose error_detection_code:\n0 - none, 1 - parity bit, 2 - crc, 3 - md5: "))
+            pc1.set_error_detection_code(detection_code)
+            pc2.set_error_detection_code(detection_code)
         elif choice == '3':
-            pc1.set_arq_protocol()
+            protocol = int(input("Choose ARQ protocol: \n0 - UDP, 1 - stop&wait, 2 - go-back-N, 3 - selective repeat: "))
+            pc1.set_arq_protocol(protocol)
+            pc2.set_arq_protocol(protocol)
         elif choice == '4':
-            pc1.set_data_size()
+            data_size = int(input("Enter data size (as a positive integer): "))
+            pc1.set_data_size(data_size)
+            pc2.set_data_size(data_size)
         elif choice == '5':
-            pc1.set_data_number()
+            data_number = int(input("Enter number of data (as a positive integer): "))
+            pc1.set_data_number(data_number)
+            pc2.set_data_number(data_number)
         elif choice == '6':
             await pc1.send_data(pc2)  # Sending data from PC1 to PC2
             await print_transmition_data(pc1, pc2)
             await compare_data(pc1, pc2)
         elif choice == '7':
+            pc1.display_current_settings()
+        elif choice == '8':
             print("Exiting...")
             break
         else:
