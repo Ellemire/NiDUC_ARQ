@@ -5,39 +5,40 @@ from md5 import add_md5, verify_md5
 import time, asyncio, random
 import sys
 
-sys.setrecursionlimit(50000)
+sys.setrecursionlimit(100000)
 
-#parametry zakłócenia, ARQ, error detection, różne sposoby zakłócenia, podział na paczki
-#statystyki czy wykryto wszystkie błędy, liczba błędów,
+
+# parametry zakłócenia, ARQ, error detection, różne sposoby zakłócenia, podział na paczki
+# statystyki czy wykryto wszystkie błędy, liczba błędów,
 class PC:
     def __init__(self, name):
-        self.name = name                    # computer name
-        self.buffered_data = []             # buffered memory
-        self.original_data = []             # original data generated for transmission (for comparison)
-        self.received_data = []              # received data
+        self.name = name                        # computer name
+        self.buffered_data = []                 # buffered memory
+        self.original_data = []                 # original data generated for transmission (for comparison)
+        self.received_data = []                 # received data
         self.__error_rate = 0.05
         self.__data_size = 10
         self.__data_number = 10
-        self.__data_segment_index = 0       # index of the currently sent segment (next segment to be sent)
-        self.__ACK_event = asyncio.Event()  # for handling asynchronous events: ACK reception event
-        self.__error_detection_code = 2     # 0 - none, 1 - parity bit, 2 - crc, 3 - md5
-        self.__ARQ_protocol = 2             # 0 - UDP, 1 - stop&wait, 2 - go back N, 3 - selective repeat
+        self.__data_segment_index = 0           # index of the currently sent segment (next segment to be sent)
+        self.__ACK_event = asyncio.Event()      # Event for handling asynchronous events: ACK reception event
+        self.__error_detection_code = 2         # 0 - none, 1 - parity bit, 2 - crc, 3 - md5
+        self.__ARQ_protocol = 2                 # 0 - UDP, 1 - stop&wait, 2 - go back N, 3 - selective repeat
 
-# Function to generate data and store it in the original_data array - raw data to be sent
+    # Function to generate data and store it in the original_data array - raw data to be sent
     def generate_data(self):
         for i in range(self.__data_number):
             generated_data = generate_bit_string(self.__data_size)
             self.original_data.append(generated_data)
         start_index = len(self.original_data) - self.__data_number
         end_index = len(self.original_data)
-        return self.original_data[start_index : end_index]
+        return self.original_data[start_index: end_index]
 
-# Function to select and add control sum bits for transmission from the original_data array
+    # Function to select and add control sum bits for transmission from the original_data array
     async def send_data(self, receiver):
         start_index = len(self.original_data)
-        data_to_send = self.generate_data()  # Generating data to be sent
+        data_to_send = self.generate_data()             # Generating data to be sent
         end_index = len(self.original_data)
-        gap = self.__data_segment_index - start_index                # difference between indices for index synchronization
+        gap = self.__data_segment_index - start_index   # difference between indices for index synchronization
         while start_index < end_index:
             # preparing data for transmission
             if self.__error_detection_code == 1:
@@ -51,25 +52,25 @@ class PC:
 
             # transmitting data segment
             await self.data_sending(receiver, self.buffered_data[self.__data_segment_index], self.__data_segment_index)
-            self.__data_segment_index += 1                    # incrementing the data segment index for transmission
+            self.__data_segment_index += 1                  # incrementing the data segment index for transmission
 
             if self.__ARQ_protocol == 1:
-                await self.__ACK_event.wait()                 # waiting for ACK reception for ARQ: STOP & WAIT
+                await self.__ACK_event.wait()               # waiting for ACK reception for ARQ: STOP & WAIT
 
-            start_index = self.__data_segment_index - gap     # incrementing start_index for data transmission by gap
+            start_index = self.__data_segment_index - gap   # incrementing start_index for data transmission by gap
 
-# Function to send a segment
+    # Function to send a segment
     async def data_sending(self, receiver, data, index):
         # Simulating data transmission
         print(f"{self.name} sending data to {receiver.name}:    {data}")
-        data = transmit(data, self.__error_rate)                   # Simulating transmission with error probability
-        # await asyncio.sleep(0)                              # Simulating transmission time
-        await receiver.receive_data(self, data, index)      # Calling the receive_data method on the receiver object
+        data = transmit(data, self.__error_rate)                # Simulating transmission with error probability
+        # await asyncio.sleep(0)                                # Simulating transmission time
+        await receiver.receive_data(self, data, index)          # Calling the receive_data method on the receiver object
 
     async def receive_data(self, sender, data, index):
         self.__data_segment_index = index
         print(f"{self.name} received data from {sender.name}: {data}")
-        await asyncio.sleep(0)                   # Simulating transmission time
+        await asyncio.sleep(0)              # Simulating transmission time
         if self.__ARQ_protocol != 0:
             if self.__error_detection_code == 1:
                 if verify_parity_bit(data):
@@ -102,14 +103,16 @@ class PC:
         print(f"{self.name} is sending NACK. Data segment index: {index}")
         await receiver.recive_NACK(self, index)
 
-    #dodać do eksperymentu błędy ACK
+    # dodać do eksperymentu błędy ACK !!!!!
     async def send_ACK(self, receiver, index):
         print(f"{self.name} is sending ACK. Data segment index: {index}")
         await receiver.recive_ACK(self, index)
+
     async def recive_ACK(self, sender, index):
         print(f"{self.name} recived ACK. Data segment index: {index}")
         if self.__ARQ_protocol == 1:
             self.__ACK_event.set()
+
     async def recive_NACK(self, sender, index):
         print(f"{self.name} recived NACK. Data segment index: {index}")
         self.NACK = True
@@ -119,7 +122,13 @@ class PC:
         if self.__ARQ_protocol == 2:
             self.buffered_data.pop(index)
             print(f"Go back {index} and resending all data.")
-            self.__data_segment_index = index - 1                 # -1 bo indeks zaraz będzie inkrementowany
+            self.__data_segment_index = index - 1
+
+    def reset(self):
+        self.buffered_data = []
+        self.original_data = []
+        self.received_data = []
+        self.__data_segment_index = 0
 
     def print_buffered_data(self):
         print(self.buffered_data)
@@ -175,8 +184,9 @@ class PC:
 
 # drukowanie wysłanych i odebranych danych do porównania
 async def print_transmition_data(sender, receiver):
-    print(f"\nOriginal data by {sender.name}: {sender.original_data}")  # Displaying data sent by PC1
-    print(f"Recived  data by {receiver.name}: {receiver.received_data}")   # Displaying data received by PC2
+    print(f"\nOriginal data by {sender.name}: {sender.original_data}")      # Displaying data sent by PC1
+    print(f"Recived  data by {receiver.name}: {receiver.received_data}")    # Displaying data received by PC2
+
 
 async def compare_data(sender, receiver):
     original_data = sender.original_data
@@ -195,7 +205,6 @@ async def compare_data(sender, receiver):
     print(f"Number of incorrectly transmitted data: {different_elements}")
 
 
-# przykład użycia
 async def main():
     pc1 = PC("PC1")
     pc2 = PC("PC2")
@@ -221,7 +230,8 @@ async def main():
             pc1.set_error_detection_code(detection_code)
             pc2.set_error_detection_code(detection_code)
         elif choice == '3':
-            protocol = int(input("Choose ARQ protocol: \n0 - UDP, 1 - stop&wait, 2 - go-back-N, 3 - selective repeat: "))
+            protocol = int(
+                input("Choose ARQ protocol: \n0 - UDP, 1 - stop&wait, 2 - go-back-N, 3 - selective repeat: "))
             pc1.set_arq_protocol(protocol)
             pc2.set_arq_protocol(protocol)
         elif choice == '4':
@@ -233,6 +243,8 @@ async def main():
             pc1.set_data_number(data_number)
             pc2.set_data_number(data_number)
         elif choice == '6':
+            pc1.reset()
+            pc2.reset()
             await pc1.send_data(pc2)  # Sending data from PC1 to PC2
             await print_transmition_data(pc1, pc2)
             await compare_data(pc1, pc2)
@@ -243,5 +255,6 @@ async def main():
             break
         else:
             print("Invalid choice. Please select a valid option.")
+
 
 asyncio.run(main())
