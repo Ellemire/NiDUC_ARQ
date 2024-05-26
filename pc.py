@@ -19,7 +19,7 @@ class PC:
         self.buffered_data = []                 # buffered memory
         self.original_data = []                 # original data generated for transmission (for comparison)
         self.received_data = []                 # received data
-         self.__packet_size = 1500              # Maximum packet size
+        self.__packet_size = 1500               # Maximum packet size
         self.__error_rate = 0.05
         self.__data_size = 10
         self.__data_number = 10
