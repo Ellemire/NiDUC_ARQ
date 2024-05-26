@@ -19,6 +19,7 @@ class PC:
         self.buffered_data = []                 # buffered memory
         self.original_data = []                 # original data generated for transmission (for comparison)
         self.received_data = []                 # received data
+        self.packet_counter = 0                 # Counts additional packets
         self.__packet_size = 1500               # Maximum packet size
         self.__error_rate = 0.05
         self.__data_size = 10
@@ -224,7 +225,15 @@ async def print_transmition_data(sender, receiver):
     print(f"\nOriginal data by {sender.name}: {sender.original_data}")      # Displaying data sent by PC1
     print(f"Received  data by {receiver.name}: {receiver.received_data}")    # Displaying data received by PC2
 
+# Function for comparing data when segmented to more packets
+def merge_segmented_data(packets):
+        merged_packets = []
+        for i in range(0, len(packets), 2):
+            merged_packet = packets[i] + packets[i + 1]
+            merged_packets.append(merged_packet)
 
+        return merged_packets
+    
 async def compare_data(sender, receiver):
     original_data = sender.original_data
     received_data = receiver.received_data
@@ -234,7 +243,12 @@ async def compare_data(sender, receiver):
         return
 
     total_elements = len(original_data)
-    same_elements = sum(1 for o, r in zip(original_data, received_data) if o == r)
+    if sender.packet_counter != 0:
+         segmented_data = merge_segmented_data(received_data)
+        same_elements = sum(1 for o, r in zip(original_data, segmented_data) if o == r)
+    else:
+        same_elements = sum(1 for o, r in zip(original_data, received_data) if o == r)
+        
     different_elements = total_elements - same_elements
 
     print(f"Total transmitted data: {total_elements}")
