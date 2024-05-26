@@ -19,6 +19,7 @@ class PC:
         self.buffered_data = []                 # buffered memory
         self.original_data = []                 # original data generated for transmission (for comparison)
         self.received_data = []                 # received data
+         self.__packet_size = 1500              # Maximum packet size
         self.__error_rate = 0.05
         self.__data_size = 10
         self.__data_number = 10
@@ -35,32 +36,53 @@ class PC:
         start_index = len(self.original_data) - self.__data_number
         end_index = len(self.original_data)
         return self.original_data[start_index: end_index]
+        
+    #Function to split a big amount of data into smaller packages
+        def packetize_data(self, data):
+            packets = []
+            packet = ''
+            for i in range(len(data)):
+                packet += data[i]
+                if len(packet) == self.__packet_size:
+                    packets.append(packet)
+                    packet = ''
+            if packet:
+                packets.append(packet)
+            return packets
 
     # Function to select and add control sum bits for transmission from the original_data array
     async def send_data(self, receiver):
-        start_index = len(self.original_data)
-        data_to_send = self.generate_data()             # Generating data to be sent
+         start_index = len(self.original_data)
+        data_to_send = self.generate_data()                    # Generating data to be sent
         end_index = len(self.original_data)
-        gap = self.__data_segment_index - start_index   # difference between indices for index synchronization
+        gap = self.__data_segment_index - start_index
         while start_index < end_index:
-            # preparing data for transmission
-            if self.__error_detection_code == 1:
-                self.buffered_data.append(add_parity_bit(self.original_data[start_index]))
-            elif self.__error_detection_code == 2:
-                self.buffered_data.append(add_crc(self.original_data[start_index]))
-            elif self.__error_detection_code == 3:
-                self.buffered_data.append(add_md5(self.original_data[start_index]))
+            # Preparing data for transmission
+            data_segment = self.original_data[start_index]
+            if len(data_segment) > self.__packet_size:
+                data_packets = self.packetize_data(data_segment)
             else:
-                self.buffered_data.append(self.original_data[start_index])
+                data_packets = [data_segment]                  # Treat as a single packet
 
-            # transmitting data segment
-            await self.data_sending(receiver, self.buffered_data[self.__data_segment_index], self.__data_segment_index)
-            self.__data_segment_index += 1                  # incrementing the data segment index for transmission
+            for packet in data_packets:
+                if self.__error_detection_code == 1:
+                    self.buffered_data.append(add_parity_bit(packet))
+                elif self.__error_detection_code == 2:
+                    self.buffered_data.append(add_crc(packet))
+                elif self.__error_detection_code == 3:
+                    self.buffered_data.append(add_md5(packet))
+                else:
+                    self.buffered_data.append(packet)
 
-            if self.__ARQ_protocol == 1:
-                await self.__ACK_event.wait()               # waiting for ACK reception for ARQ: STOP & WAIT
+                # transmitting data segment
+                await self.data_sending(receiver, self.buffered_data[self.__data_segment_index],
+                                        self.__data_segment_index)
+                self.__data_segment_index += 1                  # Incrementing the data segment index for transmission
 
-            start_index = self.__data_segment_index - gap   # incrementing start_index for data transmission by gap
+                if self.__ARQ_protocol == 1:
+                    await self.__ACK_event.wait()               # Waiting for ACK reception for ARQ: STOP & WAIT
+
+            start_index = self.__data_segment_index - gap       # Incrementing start_index for data transmission by gap
 
     # Function to send a segment
     async def data_sending(self, receiver, data, index):
