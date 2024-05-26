@@ -38,32 +38,37 @@ class PC:
         return self.original_data[start_index: end_index]
         
     #Function to split a big amount of data into smaller packages
-        def packetize_data(self, data):
-            packets = []
-            packet = ''
+    def packetize_data(self, data):
+        packets = []
+        packet = ''
+        if len(data)< self.__packet_size:
+            packet = data
+            packets.append(packet)
+        else:
             for i in range(len(data)):
                 packet += data[i]
                 if len(packet) == self.__packet_size:
                     packets.append(packet)
                     packet = ''
-            if packet:
+            if len(data)>= self.__packet_size:
                 packets.append(packet)
-            return packets
+        return packets
 
     # Function to select and add control sum bits for transmission from the original_data array
     async def send_data(self, receiver):
-         start_index = len(self.original_data)
-        data_to_send = self.generate_data()                    # Generating data to be sent
+      start_index = 0
+        data_to_send = self.generate_data()                     # Generating data to be sent
         end_index = len(self.original_data)
+        original_seg_index = 0                                  # Checking the index of a segment, so it iterates through every segment
         gap = self.__data_segment_index - start_index
         while start_index < end_index:
-            # Preparing data for transmission
-            data_segment = self.original_data[start_index]
-            if len(data_segment) > self.__packet_size:
-                data_packets = self.packetize_data(data_segment)
+            if len(self.original_data[original_seg_index]) > self.__packet_size:
+                end_index += 1
+                data_packets = self.packetize_data(self.original_data[original_seg_index])
             else:
-                data_packets = [data_segment]                  # Treat as a single packet
+                data_packets = [self.original_data[original_seg_index]]      # Treat as a single packet
 
+            # Preparing data for transmission
             for packet in data_packets:
                 if self.__error_detection_code == 1:
                     self.buffered_data.append(add_parity_bit(packet))
