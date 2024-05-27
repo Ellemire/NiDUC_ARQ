@@ -229,6 +229,14 @@ async def print_transmition_data(sender, receiver):
     print(f"Received  data by {receiver.name}: {receiver.received_data} (no duplicates)")  # Displaying data received by PC2
     print(f"Received  data by {receiver.name}: {receiver.final_data}")
 
+# Function for comparing data when segmented to more packets
+def merge_segmented_data(packets):
+    merged_packets = []
+    for i in range(0, len(packets), 2):
+        merged_packet = packets[i] + packets[i + 1]
+        merged_packets.append(merged_packet)
+
+    return merged_packets
 
 async def compare_data(sender, receiver):
     original_data = sender.original_data
