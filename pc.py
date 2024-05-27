@@ -23,6 +23,7 @@ class PC:
         self.received_data = []  # received data with no duplicates
         self.final_data = []     # received data
         self.__error_rate = 0.05
+        self.__packet_size = 150 # maximum size of a packet, that can be sent unsegmented
         self.__data_size = 10
         self.__data_number = 10
         self.__data_segment_index = 0  # index of the currently sent segment (next segment to be sent)
@@ -39,6 +40,24 @@ class PC:
         end_index = len(self.original_data)
         return self.original_data[start_index: end_index]
 
+    # Packet segmenting in case of bigger segment size than maximum packet size
+    def packetize_data(self, data):
+        packets = []
+        packet = ''
+        if len(data) < self.__packet_size:
+            packet = data
+            packets.append(packet)
+        else:
+            for i in range(len(data)):
+                packet += data[i]
+                if len(packet) == self.__packet_size:
+                    packets.append(packet)
+                    packet = ''
+            if len(data) >= self.__packet_size:
+                packets.append(packet)
+            self.packet_counter += 1
+        return packets
+        
     # Function to select and add control sum bits for transmission from the original_data array
     async def send_data(self, receiver):
         start_index = len(self.original_data)
@@ -46,18 +65,25 @@ class PC:
         end_index = len(self.original_data)
         gap = self.__data_segment_index - start_index  # difference between indices for index synchronization
         while start_index < end_index:
-            # preparing data for transmission
-            if self.__error_detection_code == 1:
-                self.buffered_data.append(add_parity_bit(self.original_data[start_index]))
-            elif self.__error_detection_code == 2:
-                self.buffered_data.append(add_crc(self.original_data[start_index]))
-            elif self.__error_detection_code == 3:
-                self.buffered_data.append(add_md5(self.original_data[start_index]))
+             if len(self.original_data[start_index]) > self.__packet_size:
+                data_packets = self.packetize_data(self.original_data[start_index])
             else:
-                self.buffered_data.append(self.original_data[start_index])
+                data_packets = [self.original_data[start_index]]  # Treat as a single packet
+            
+            # preparing data for transmission
+            for packet in data_packets:
+                if self.__error_detection_code == 1:
+                    self.buffered_data.append(add_parity_bit(packet))
+                elif self.__error_detection_code == 2:
+                    self.buffered_data.append(add_crc(packet))
+                elif self.__error_detection_code == 3:
+                    self.buffered_data.append(add_md5(packet))
+                else:
+                    self.buffered_data.append(packet)
 
             # transmitting data segment
-            await self.data_sending(receiver, self.buffered_data[self.__data_segment_index], self.__data_segment_index)
+            for segment in self.buffered_data:
+                await self.data_sending(receiver, segment, self.__data_segment_index)
             self.__data_segment_index += 1  # incrementing the data segment index for transmission
 
             if self.__ARQ_protocol == 1:
