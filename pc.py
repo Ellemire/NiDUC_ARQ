@@ -239,7 +239,13 @@ async def compare_data(sender, receiver):
         return
 
     total_elements = len(original_data)
-    same_elements = sum(1 for o, r in zip(original_data, received_data) if o == r)
+    
+    if sender.packet_counter != 0:
+        segmented_data = merge_segmented_data(received_data)
+        same_elements = sum(1 for o, r in zip(original_data, segmented_data) if o == r)
+    else:
+        same_elements = sum(1 for o, r in zip(original_data, received_data) if o == r)
+        
     different_elements = total_elements - same_elements
 
     print(f"Total transmitted data: {total_elements}")
