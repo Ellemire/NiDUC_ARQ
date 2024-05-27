@@ -20,14 +20,15 @@ class PC:
         self.name = name  # computer name
         self.buffered_data = []  # buffered memory
         self.original_data = []  # original data generated for transmission (for comparison)
-        self.received_data = []  # received data with no duplicates
+        self.received_data = []  # received data if correct and with ACK
+        self.different_data = [] # different data received with ACK
         self.final_data = []     # received data
         self.__error_rate = 0.05
         self.__data_size = 10
         self.__data_number = 10
         self.__data_segment_index = 0  # index of the currently sent segment (next segment to be sent)
         self.__ACK_event = asyncio.Event()  # Event for handling asynchronous events: ACK reception event
-        self.__error_detection_code = 2  # 0 - none, 1 - parity bit, 2 - crc, 3 - md5
+        self.__error_detection_code = 1  # 0 - none, 1 - parity bit, 2 - crc, 3 - md5
         self.__ARQ_protocol = 1  # 0 - UDP, 1 - stop&wait, 2 - go back N, 3 - selective repeat
 
     # Function to generate data and store it in the original_data array - raw data to be sent
@@ -80,50 +81,62 @@ class PC:
         if self.__ARQ_protocol != 0:
             if self.__error_detection_code == 1:
                 if verify_parity_bit(data):
-                    await self.send_ACK(sender, index)
+                    await self.send_ACK(sender, index, data)
                     self.buffered_data.append(data)
-                    if data[:-1] not in self.received_data: self.received_data.append(data[:-1])
                     self.final_data.append(data[:-1])
                 else:
-                    await self.send_NACK(sender, index)
+                    await self.send_NACK(sender, index, 0)
             elif self.__error_detection_code == 2:
                 if verify_crc(data):
-                    await self.send_ACK(sender, index)
+                    await self.send_ACK(sender, index, data)
                     self.buffered_data.append(data)
-                    if data[:-32] not in self.received_data: self.received_data.append(data[:-32])
                     self.final_data.append(data[:-32])
                 else:
-                    await self.send_NACK(sender, index)
+                    await self.send_NACK(sender, index, 0)
             elif self.__error_detection_code == 3:
                 if verify_md5(data):
-                    await self.send_ACK(sender, index)
+                    await self.send_ACK(sender, index, data)
                     self.buffered_data.append(data)
-                    if data[:-128] not in self.received_data: self.received_data.append(data[:-128])
                     self.final_data.append(data[:-128])
                 else:
-                    await self.send_NACK(sender, index)
+                    await self.send_NACK(sender, index, 0)
             else:
                 self.buffered_data.append(data)
                 self.final_data.append(data)
         else:
             self.final_data.append(data)
 
-    async def send_NACK(self, receiver, index):
+    async def send_NACK(self, receiver, index, data):
         print(f"{self.name} is sending NACK. Data segment index: {index}")
-        await receiver.receive_CK(self, index, transmit(NACK, self.__error_rate))
+        await receiver.receive_CK(self, index, transmit(NACK, self.__error_rate), False, data)
 
-    async def send_ACK(self, receiver, index):
+    async def send_ACK(self, receiver, index, data):
         print(f"{self.name} is sending ACK. Data segment index: {index}")
-        await receiver.receive_CK(self, index, transmit(ACK, self.__error_rate))
+        await receiver.receive_CK(self, index, transmit(ACK, self.__error_rate), True, data)
 
-    async def receive_CK(self, sender, index, transmitted):
+    async def receive_CK(self, sender, index, transmitted, _ACK_NACK, data):
         await asyncio.sleep(0)
         print(f"{self.name} received {transmitted}. Data segment index: {index}")
-
         if transmitted == ACK:
             print(f"{self.name} received ACK. Data segment index: {index}\n")
             if self.__ARQ_protocol == 1:
                 self.__ACK_event.set()
+
+            if self.__error_detection_code == 1:
+                if data[:-1] == self.original_data[index]:
+                    sender.received_data.append(data[:-1])
+                else:
+                    sender.different_data.append(data[:-1])
+            elif self.__error_detection_code == 2:
+                if data[:-32] == self.original_data[index]:
+                    sender.received_data.append(data[:-32])
+                else:
+                    sender.different_data.append(data[:-32])
+            elif self.__error_detection_code == 3:
+                if data[:-128] == self.original_data[index]:
+                    sender.received_data.append(data[:-128])
+                else:
+                    sender.different_data.append(data[:-128])
         else:
             if transmitted == NACK:
                 print(f"{self.name} received NACK. Data segment index: {index}")
@@ -199,9 +212,10 @@ class PC:
 
 # drukowanie wysłanych i odebranych danych do porównania
 async def print_transmition_data(sender, receiver):
-    print(f"\nOriginal data by {sender.name}: {sender.original_data}")  # Displaying data sent by PC1
-    print(f"Received  data by {receiver.name}: {receiver.received_data} (no duplicates)")  # Displaying data received by PC2
-    print(f"Received  data by {receiver.name}: {receiver.final_data}")
+    print(f"\nOriginal data by {sender.name}:                        {sender.original_data}")  # Displaying data sent by PC1
+    print(f"Received correct data with ACK by {receiver.name}:       {receiver.received_data}")  # Displaying data received by PC2
+    print(f"Received other data with ACK by {receiver.name}:         {receiver.different_data}")
+    print(f"Received data with (un)corrupted ACK by {receiver.name}: {receiver.final_data}")
 
 
 async def compare_data(sender, receiver):
@@ -213,12 +227,14 @@ async def compare_data(sender, receiver):
         return
 
     total_elements = len(original_data)
+    duplicated_elements = len(receiver.final_data) - total_elements
     same_elements = sum(1 for o, r in zip(original_data, received_data) if o == r)
     different_elements = total_elements - same_elements
 
     print(f"Total transmitted data: {total_elements}")
     print(f"Number of successfully transmitted data: {same_elements}")
     print(f"Number of incorrectly transmitted data: {different_elements}")
+    print(f"Number of transmitted duplicates : {duplicated_elements}")
 
 
 async def main():
