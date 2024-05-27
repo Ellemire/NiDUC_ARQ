@@ -22,10 +22,11 @@ class PC:
         self.original_data = []  # original data generated for transmission (for comparison)
         self.received_data = []  # received data with no duplicates
         self.final_data = []     # received data
-        self.__error_rate = 0.05
-        self.__packet_size = 150 # maximum size of a packet, that can be sent unsegmented
-        self.__data_size = 10
-        self.__data_number = 10
+        self.packet_counter = 0  # Counts additional packets
+        self.__packet_size = 4
+        self.__error_rate = 0
+        self.__data_size = 6
+        self.__data_number = 8
         self.__data_segment_index = 0  # index of the currently sent segment (next segment to be sent)
         self.__ACK_event = asyncio.Event()  # Event for handling asynchronous events: ACK reception event
         self.__error_detection_code = 2  # 0 - none, 1 - parity bit, 2 - crc, 3 - md5
@@ -40,7 +41,8 @@ class PC:
         end_index = len(self.original_data)
         return self.original_data[start_index: end_index]
 
-    # Packet segmenting in case of bigger segment size than maximum packet size
+    # Function to split a big amount of data into smaller packages
+
     def packetize_data(self, data):
         packets = []
         packet = ''
@@ -57,19 +59,23 @@ class PC:
                 packets.append(packet)
             self.packet_counter += 1
         return packets
-        
+
     # Function to select and add control sum bits for transmission from the original_data array
     async def send_data(self, receiver):
         start_index = len(self.original_data)
         data_to_send = self.generate_data()  # Generating data to be sent
         end_index = len(self.original_data)
+        #original_seg_index = 0  # Checking the index of a segment, so it iterates through every segment
         gap = self.__data_segment_index - start_index  # difference between indices for index synchronization
         while start_index < end_index:
-             if len(self.original_data[start_index]) > self.__packet_size:
+            if len(self.original_data[start_index]) > self.__packet_size:
+                #end_index = len(self.original_data) + self.packet_counter
                 data_packets = self.packetize_data(self.original_data[start_index])
             else:
                 data_packets = [self.original_data[start_index]]  # Treat as a single packet
-            
+
+
+
             # preparing data for transmission
             for packet in data_packets:
                 if self.__error_detection_code == 1:
@@ -81,15 +87,21 @@ class PC:
                 else:
                     self.buffered_data.append(packet)
 
+
             # transmitting data segment
-            for segment in self.buffered_data:
-                await self.data_sending(receiver, segment, self.__data_segment_index)
-            self.__data_segment_index += 1  # incrementing the data segment index for transmission
+            for i in self.buffered_data:
+                await self.data_sending(receiver, i, self.__data_segment_index)
+
+            self.__data_segment_index += 1
+
+
 
             if self.__ARQ_protocol == 1:
                 await self.__ACK_event.wait()  # waiting for ACK reception for ARQ: STOP & WAIT
 
+
             start_index = self.__data_segment_index - gap  # incrementing start_index for data transmission by gap
+            self.buffered_data=[]
 
     # Function to send a segment
     async def data_sending(self, receiver, data, index):
@@ -100,7 +112,7 @@ class PC:
         await receiver.receive_data(self, data, index)  # Calling the receive_data method on the receiver object
 
     async def receive_data(self, sender, data, index):
-        self.__data_segment_index = index
+        self.__data_segment_index = index + self.packet_counter
         print(f"{self.name} received data from {sender.name}: {data}")
         await asyncio.sleep(0)  # Simulating transmission time
         if self.__ARQ_protocol != 0:
@@ -238,27 +250,28 @@ def merge_segmented_data(packets):
 
     return merged_packets
 
+
 async def compare_data(sender, receiver):
     original_data = sender.original_data
     received_data = receiver.received_data
-
-    if len(original_data) != len(received_data):
+    if len(original_data) != len(received_data)-receiver.packet_counter:
         print("The data arrays have different lengths.")
         return
 
     total_elements = len(original_data)
-    
     if sender.packet_counter != 0:
         segmented_data = merge_segmented_data(received_data)
         same_elements = sum(1 for o, r in zip(original_data, segmented_data) if o == r)
     else:
         same_elements = sum(1 for o, r in zip(original_data, received_data) if o == r)
-        
+
+
     different_elements = total_elements - same_elements
 
     print(f"Total transmitted data: {total_elements}")
     print(f"Number of successfully transmitted data: {same_elements}")
     print(f"Number of incorrectly transmitted data: {different_elements}")
+
 
 
 async def main():
