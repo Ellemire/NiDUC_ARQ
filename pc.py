@@ -6,26 +6,29 @@ import time, asyncio, random
 import sys
 
 sys.setrecursionlimit(100000)
-ACK = '0000110'                                 # ASCII code for ACK
-NACK = '0010101'                                # ASCII code for NACK (NAK)
-#Nerror_rate = 0.01
+ACK = '0000110'  # ASCII code for ACK
+NACK = '0010101'  # ASCII code for NACK (NAK)
+
+
+# Nerror_rate = 0.01
 
 
 # parametry zakłócenia, ARQ, error detection, różne sposoby zakłócenia, podział na paczki
 # statystyki czy wykryto wszystkie błędy, liczba błędów,
 class PC:
     def __init__(self, name):
-        self.name = name                        # computer name
-        self.buffered_data = []                 # buffered memory
-        self.original_data = []                 # original data generated for transmission (for comparison)
-        self.received_data = []                 # received data
+        self.name = name  # computer name
+        self.buffered_data = []  # buffered memory
+        self.original_data = []  # original data generated for transmission (for comparison)
+        self.received_data = []  # received data with no duplicates
+        self.final_data = []     # received data
         self.__error_rate = 0.05
         self.__data_size = 10
         self.__data_number = 10
-        self.__data_segment_index = 0           # index of the currently sent segment (next segment to be sent)
-        self.__ACK_event = asyncio.Event()      # Event for handling asynchronous events: ACK reception event
-        self.__error_detection_code = 2         # 0 - none, 1 - parity bit, 2 - crc, 3 - md5
-        self.__ARQ_protocol = 1                 # 0 - UDP, 1 - stop&wait, 2 - go back N, 3 - selective repeat
+        self.__data_segment_index = 0  # index of the currently sent segment (next segment to be sent)
+        self.__ACK_event = asyncio.Event()  # Event for handling asynchronous events: ACK reception event
+        self.__error_detection_code = 2  # 0 - none, 1 - parity bit, 2 - crc, 3 - md5
+        self.__ARQ_protocol = 1  # 0 - UDP, 1 - stop&wait, 2 - go back N, 3 - selective repeat
 
     # Function to generate data and store it in the original_data array - raw data to be sent
     def generate_data(self):
@@ -39,9 +42,9 @@ class PC:
     # Function to select and add control sum bits for transmission from the original_data array
     async def send_data(self, receiver):
         start_index = len(self.original_data)
-        data_to_send = self.generate_data()             # Generating data to be sent
+        data_to_send = self.generate_data()  # Generating data to be sent
         end_index = len(self.original_data)
-        gap = self.__data_segment_index - start_index   # difference between indices for index synchronization
+        gap = self.__data_segment_index - start_index  # difference between indices for index synchronization
         while start_index < end_index:
             # preparing data for transmission
             if self.__error_detection_code == 1:
@@ -55,61 +58,62 @@ class PC:
 
             # transmitting data segment
             await self.data_sending(receiver, self.buffered_data[self.__data_segment_index], self.__data_segment_index)
-            self.__data_segment_index += 1                  # incrementing the data segment index for transmission
+            self.__data_segment_index += 1  # incrementing the data segment index for transmission
 
             if self.__ARQ_protocol == 1:
-                await self.__ACK_event.wait()               # waiting for ACK reception for ARQ: STOP & WAIT
+                await self.__ACK_event.wait()  # waiting for ACK reception for ARQ: STOP & WAIT
 
-            start_index = self.__data_segment_index - gap   # incrementing start_index for data transmission by gap
+            start_index = self.__data_segment_index - gap  # incrementing start_index for data transmission by gap
 
     # Function to send a segment
     async def data_sending(self, receiver, data, index):
         # Simulating data transmission
         print(f"{self.name} sending data to {receiver.name}:    {data}")
-        data = transmit(data, self.__error_rate)                # Simulating transmission with error probability
-        # await asyncio.sleep(0)                                # Simulating transmission time
-        await receiver.receive_data(self, data, index)          # Calling the receive_data method on the receiver object
+        data = transmit(data, self.__error_rate)  # Simulating transmission with error probability
+        await asyncio.sleep(0)  # Simulating transmission time
+        await receiver.receive_data(self, data, index)  # Calling the receive_data method on the receiver object
 
     async def receive_data(self, sender, data, index):
         self.__data_segment_index = index
         print(f"{self.name} received data from {sender.name}: {data}")
-        await asyncio.sleep(0)              # Simulating transmission time
+        await asyncio.sleep(0)  # Simulating transmission time
         if self.__ARQ_protocol != 0:
             if self.__error_detection_code == 1:
                 if verify_parity_bit(data):
                     await self.send_ACK(sender, index)
                     self.buffered_data.append(data)
-                    self.received_data.append(data[:-1])
+                    if data[:-1] not in self.received_data: self.received_data.append(data[:-1])
+                    self.final_data.append(data[:-1])
                 else:
                     await self.send_NACK(sender, index)
             elif self.__error_detection_code == 2:
                 if verify_crc(data):
                     await self.send_ACK(sender, index)
                     self.buffered_data.append(data)
-                    self.received_data.append(data[:-32])
+                    if data[:-32] not in self.received_data: self.received_data.append(data[:-32])
+                    self.final_data.append(data[:-32])
                 else:
                     await self.send_NACK(sender, index)
             elif self.__error_detection_code == 3:
                 if verify_md5(data):
                     await self.send_ACK(sender, index)
                     self.buffered_data.append(data)
-                    self.received_data.append(data[:-128])
+                    if data[:-128] not in self.received_data: self.received_data.append(data[:-128])
+                    self.final_data.append(data[:-128])
                 else:
                     await self.send_NACK(sender, index)
             else:
                 self.buffered_data.append(data)
-                self.received_data.append(data)
+                self.final_data.append(data)
         else:
-            self.received_data.append(data)
+            self.final_data.append(data)
 
     async def send_NACK(self, receiver, index):
         print(f"{self.name} is sending NACK. Data segment index: {index}")
         await receiver.receive_CK(self, index, transmit(NACK, self.__error_rate))
 
-    # dodać do eksperymentu błędy ACK !!!!!
     async def send_ACK(self, receiver, index):
         print(f"{self.name} is sending ACK. Data segment index: {index}")
-        print(self.__error_rate)
         await receiver.receive_CK(self, index, transmit(ACK, self.__error_rate))
 
     async def receive_CK(self, sender, index, transmitted):
@@ -138,6 +142,7 @@ class PC:
         self.buffered_data = []
         self.original_data = []
         self.received_data = []
+        self.final_data = []
         self.__data_segment_index = 0
 
     def print_buffered_data(self):
@@ -194,8 +199,9 @@ class PC:
 
 # drukowanie wysłanych i odebranych danych do porównania
 async def print_transmition_data(sender, receiver):
-    print(f"\nOriginal data by {sender.name}: {sender.original_data}")      # Displaying data sent by PC1
-    print(f"Received  data by {receiver.name}: {receiver.received_data}")    # Displaying data received by PC2
+    print(f"\nOriginal data by {sender.name}: {sender.original_data}")  # Displaying data sent by PC1
+    print(f"Received  data by {receiver.name}: {receiver.received_data} (no duplicates)")  # Displaying data received by PC2
+    print(f"Received  data by {receiver.name}: {receiver.final_data}")
 
 
 async def compare_data(sender, receiver):
