@@ -20,17 +20,19 @@ class PC:
         self.name = name  # computer name
         self.buffered_data = []  # buffered memory
         self.original_data = []  # original data generated for transmission (for comparison)
-        self.received_data = []  # received data with no duplicates
+        self.received_data = []  # received data if correct and with ACK
+        self.different_data = [] # different data received with ACK
         self.final_data = []     # received data
-        self.packet_counter = 0  # Counts additional packets
-        self.__packet_size = 4
-        self.__error_rate = 0
-        self.__data_size = 6
-        self.__data_number = 8
+        self.raw_data = []
+        self.packet_counter = 0  # counts the amount of packets after segmenting data
+        self.packet_size = 15  # maximum size of one packet
+        self.__error_rate = 0.05
+        self.__data_size = 10
+        self.__data_number = 5
         self.__data_segment_index = 0  # index of the currently sent segment (next segment to be sent)
         self.__ACK_event = asyncio.Event()  # Event for handling asynchronous events: ACK reception event
-        self.__error_detection_code = 2  # 0 - none, 1 - parity bit, 2 - crc, 3 - md5
-        self.__ARQ_protocol = 1  # 0 - UDP, 1 - stop&wait, 2 - go back N, 3 - selective repeat
+        self.__error_detection_code = 3  # 0 - none, 1 - parity bit, 2 - crc, 3 - md5
+        self.__ARQ_protocol = 2  # 0 - UDP, 1 - stop&wait, 2 - go back N, 3 - selective repeat
 
     # Function to generate data and store it in the original_data array - raw data to be sent
     def generate_data(self):
@@ -39,69 +41,59 @@ class PC:
             self.original_data.append(generated_data)
         start_index = len(self.original_data) - self.__data_number
         end_index = len(self.original_data)
-        return self.original_data[start_index: end_index]
+        return self.original_data[start_index:end_index]
 
     # Function to split a big amount of data into smaller packages
-
     def packetize_data(self, data):
         packets = []
         packet = ''
-        if len(data) < self.__packet_size:
-            packet = data
-            packets.append(packet)
-        else:
-            for i in range(len(data)):
-                packet += data[i]
-                if len(packet) == self.__packet_size:
+        for pkt in data:                # Loop iterating through packets in data
+            packet = ''
+            for i in range(len(pkt)):   # Loop iterating through each element in packet (pkt)
+                packet += pkt[i]
+                if len(packet) == self.packet_size:
                     packets.append(packet)
                     packet = ''
-            if len(data) >= self.__packet_size:
+            if self.packet_size%len(pkt) != 0 \
+                    and len(pkt) >= self.packet_size \
+                    and packet != '':    # Adding leftover symbols as a new packet
                 packets.append(packet)
-            self.packet_counter += 1
+                self.packet_counter += 1
         return packets
 
     # Function to select and add control sum bits for transmission from the original_data array
     async def send_data(self, receiver):
         start_index = len(self.original_data)
         data_to_send = self.generate_data()  # Generating data to be sent
-        end_index = len(self.original_data)
-        #original_seg_index = 0  # Checking the index of a segment, so it iterates through every segment
+        self.raw_data = self.original_data[:]
+        if self.__data_size<=self.packet_size:  # If data in range of maximum packet size
+            end_index = len(self.original_data)
+        else:
+            self.original_data = self.packetize_data(self.original_data)
+            end_index = len(self.original_data)
         gap = self.__data_segment_index - start_index  # difference between indices for index synchronization
         while start_index < end_index:
-            if len(self.original_data[start_index]) > self.__packet_size:
-                #end_index = len(self.original_data) + self.packet_counter
-                data_packets = self.packetize_data(self.original_data[start_index])
-            else:
-                data_packets = [self.original_data[start_index]]  # Treat as a single packet
-
-
-
             # preparing data for transmission
-            for packet in data_packets:
-                if self.__error_detection_code == 1:
-                    self.buffered_data.append(add_parity_bit(packet))
-                elif self.__error_detection_code == 2:
-                    self.buffered_data.append(add_crc(packet))
-                elif self.__error_detection_code == 3:
-                    self.buffered_data.append(add_md5(packet))
-                else:
-                    self.buffered_data.append(packet)
-
+            if self.__error_detection_code == 1:
+                self.buffered_data.append(add_parity_bit(self.original_data[start_index]))
+            elif self.__error_detection_code == 2:
+                self.buffered_data.append(add_crc(self.original_data[start_index]))
+            elif self.__error_detection_code == 3:
+                self.buffered_data.append(add_md5(self.original_data[start_index]))
+            else:
+                self.buffered_data.append(self.original_data[start_index])
 
             # transmitting data segment
-            for i in self.buffered_data:
-                await self.data_sending(receiver, i, self.__data_segment_index)
 
-            self.__data_segment_index += 1
+            await self.data_sending(receiver, self.buffered_data[self.__data_segment_index], self.__data_segment_index)
 
 
+            self.__data_segment_index += 1  # incrementing the data segment index for transmission
 
             if self.__ARQ_protocol == 1:
                 await self.__ACK_event.wait()  # waiting for ACK reception for ARQ: STOP & WAIT
 
-
             start_index = self.__data_segment_index - gap  # incrementing start_index for data transmission by gap
-            self.buffered_data=[]
 
     # Function to send a segment
     async def data_sending(self, receiver, data, index):
@@ -112,56 +104,73 @@ class PC:
         await receiver.receive_data(self, data, index)  # Calling the receive_data method on the receiver object
 
     async def receive_data(self, sender, data, index):
-        self.__data_segment_index = index + self.packet_counter
+        self.__data_segment_index = index
         print(f"{self.name} received data from {sender.name}: {data}")
         await asyncio.sleep(0)  # Simulating transmission time
         if self.__ARQ_protocol != 0:
             if self.__error_detection_code == 1:
                 if verify_parity_bit(data):
-                    await self.send_ACK(sender, index)
+                    await self.send_ACK(sender, index, data)
                     self.buffered_data.append(data)
-                    if data[:-1] not in self.received_data: self.received_data.append(data[:-1])
                     self.final_data.append(data[:-1])
                 else:
-                    await self.send_NACK(sender, index)
+                    await self.send_NACK(sender, index, 0)
             elif self.__error_detection_code == 2:
                 if verify_crc(data):
-                    await self.send_ACK(sender, index)
+                    await self.send_ACK(sender, index, data)
                     self.buffered_data.append(data)
-                    if data[:-32] not in self.received_data: self.received_data.append(data[:-32])
                     self.final_data.append(data[:-32])
                 else:
-                    await self.send_NACK(sender, index)
+                    await self.send_NACK(sender, index, 0)
             elif self.__error_detection_code == 3:
                 if verify_md5(data):
-                    await self.send_ACK(sender, index)
+                    await self.send_ACK(sender, index, data)
                     self.buffered_data.append(data)
-                    if data[:-128] not in self.received_data: self.received_data.append(data[:-128])
                     self.final_data.append(data[:-128])
                 else:
-                    await self.send_NACK(sender, index)
+                    await self.send_NACK(sender, index, 0)
             else:
                 self.buffered_data.append(data)
                 self.final_data.append(data)
         else:
             self.final_data.append(data)
 
-    async def send_NACK(self, receiver, index):
+    async def send_NACK(self, receiver, index, data):
         print(f"{self.name} is sending NACK. Data segment index: {index}")
-        await receiver.receive_CK(self, index, transmit(NACK, self.__error_rate))
+        await receiver.receive_CK(self, index, transmit(NACK, self.__error_rate), False, data)
 
-    async def send_ACK(self, receiver, index):
+    async def send_ACK(self, receiver, index, data):
         print(f"{self.name} is sending ACK. Data segment index: {index}")
-        await receiver.receive_CK(self, index, transmit(ACK, self.__error_rate))
+        await receiver.receive_CK(self, index, transmit(ACK, self.__error_rate), True, data)
 
-    async def receive_CK(self, sender, index, transmitted):
+    async def receive_CK(self, sender, index, transmitted, _ACK_NACK, data):
         await asyncio.sleep(0)
         print(f"{self.name} received {transmitted}. Data segment index: {index}")
-
         if transmitted == ACK:
             print(f"{self.name} received ACK. Data segment index: {index}\n")
             if self.__ARQ_protocol == 1:
                 self.__ACK_event.set()
+
+            if self.__error_detection_code == 1:
+                if data[:-1] == self.original_data[index]:
+                    sender.received_data.append(data[:-1])
+                else:
+                    sender.different_data.append(data[:-1])
+
+            elif self.__error_detection_code == 2:
+
+                if data[:-32] == self.original_data[index]:
+                    sender.received_data.append(data[:-32])
+                else:
+                    sender.different_data.append(data[:-32])
+
+            elif self.__error_detection_code == 3:
+                convertmd5 = str(data)
+                if convertmd5[:-128] == self.original_data[index]:
+                    sender.received_data.append(convertmd5[:-128])
+                else:
+                    sender.different_data.append(convertmd5[:-128])
+
         else:
             if transmitted == NACK:
                 print(f"{self.name} received NACK. Data segment index: {index}")
@@ -176,12 +185,17 @@ class PC:
                 print(f"Go back {index} and resending all data.")
                 self.__data_segment_index = index - 1
 
+    def get_data_size(self):
+        return self.__data_size
+
     def reset(self):
         self.buffered_data = []
         self.original_data = []
         self.received_data = []
+        self.raw_data = []
         self.final_data = []
         self.__data_segment_index = 0
+        self.packet_counter = 0
 
     def print_buffered_data(self):
         print(self.buffered_data)
@@ -226,6 +240,12 @@ class PC:
             print("Invalid input. Default error detection code set. (parity bit)")
             self.__error_detection_code = 1
 
+    def set_packet_size(self, packet_size):
+        try:
+            self.packet_size = packet_size
+        except ValueError:
+            print("Invalid input. Please enter a valid number.")
+
     def display_current_settings(self):
         print(f"\n--- Current Settings ---")
         print(f"Error Rate: {self.__error_rate}")
@@ -237,41 +257,30 @@ class PC:
 
 # drukowanie wysłanych i odebranych danych do porównania
 async def print_transmition_data(sender, receiver):
-    print(f"\nOriginal data by {sender.name}: {sender.original_data}")  # Displaying data sent by PC1
-    print(f"Received  data by {receiver.name}: {receiver.received_data} (no duplicates)")  # Displaying data received by PC2
-    print(f"Received  data by {receiver.name}: {receiver.final_data}")
-
-# Function for comparing data when segmented to more packets
-def merge_segmented_data(packets):
-    merged_packets = []
-    for i in range(0, len(packets), 2):
-        merged_packet = packets[i] + packets[i + 1]
-        merged_packets.append(merged_packet)
-
-    return merged_packets
+    print(f"\nOriginal data by {sender.name}:                        {sender.raw_data}")  # Displaying data sent by PC1
+    print(f"Received correct data with ACK by {receiver.name}:       {receiver.received_data}")  # Displaying data received by PC2
+    print(f"Received other data with ACK by {receiver.name}:         {receiver.different_data}")
+    print(f"Received data with (un)corrupted ACK by {receiver.name}: {receiver.final_data}")
 
 
 async def compare_data(sender, receiver):
     original_data = sender.original_data
     received_data = receiver.received_data
-    if len(original_data) != len(received_data)-receiver.packet_counter:
+
+    if len(original_data) != len(received_data):
         print("The data arrays have different lengths.")
         return
 
     total_elements = len(original_data)
-    if sender.packet_counter != 0:
-        segmented_data = merge_segmented_data(received_data)
-        same_elements = sum(1 for o, r in zip(original_data, segmented_data) if o == r)
-    else:
-        same_elements = sum(1 for o, r in zip(original_data, received_data) if o == r)
-
-
+    duplicated_elements = len(receiver.final_data) - total_elements
+    same_elements = sum(1 for o, r in zip(original_data, received_data) if o == r)
     different_elements = total_elements - same_elements
+
 
     print(f"Total transmitted data: {total_elements}")
     print(f"Number of successfully transmitted data: {same_elements}")
     print(f"Number of incorrectly transmitted data: {different_elements}")
-
+    print(f"Number of transmitted duplicates : {duplicated_elements}")
 
 
 async def main():
@@ -285,10 +294,11 @@ async def main():
         print("3. Set ARQ Protocol")
         print("4. Set Data Size")
         print("5. Set Number Of Data")
-        print("6. Run Data Transmission")
-        print("7. Display Current Settings")
-        print("8. Exit")
-        choice = input("Enter your choice (1-8): ")
+        print("6. Set Maximum Packet Size")
+        print("7. Run Data Transmission")
+        print("8. Display Current Settings")
+        print("9. Exit")
+        choice = input("Enter your choice (1-9): ")
 
         if choice == '1':
             error_rate = float(input("Enter error rate (as a number between 0 and 1): "))
@@ -312,14 +322,19 @@ async def main():
             pc1.set_data_number(data_number)
             pc2.set_data_number(data_number)
         elif choice == '6':
+            packet_size = int(input("Enter number of data (as a positive integer): "))
+            pc1.set_packet_size(packet_size)
+            pc2.set_packet_size(packet_size)
+        elif choice == '7':
             pc1.reset()
             pc2.reset()
+            data = pc1.get_data_size()
             await pc1.send_data(pc2)  # Sending data from PC1 to PC2
             await print_transmition_data(pc1, pc2)
             await compare_data(pc1, pc2)
-        elif choice == '7':
-            pc1.display_current_settings()
         elif choice == '8':
+            pc1.display_current_settings()
+        elif choice == '9':
             print("Exiting...")
             break
         else:
