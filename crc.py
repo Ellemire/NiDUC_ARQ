@@ -14,11 +14,3 @@ def verify_crc(data):
     calculated_crc = zlib.crc32(received_data.encode())
     return calculated_crc == int(received_crc, 2)
 
-# Function to simulate data transmission and verify the CRC checksum
-def simulate_transmission_crc(original_data, error_rate):
-    data_with_crc = add_crc(original_data)
-    transmitted_data = transmit(data_with_crc, error_rate)
-    if verify_crc(transmitted_data):
-        return transmitted_data[:-32], 0, True
-    else:
-        return transmitted_data, data_with_crc, False

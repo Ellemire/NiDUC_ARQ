@@ -2,7 +2,6 @@ from utils import transmit, generate_bit_string, show_bit_difference
 from parity_bit import add_parity_bit, verify_parity_bit
 from crc import add_crc, verify_crc
 from md5 import add_md5, verify_md5
-import time, asyncio, random
 import sys
 
 sys.setrecursionlimit(100000)
@@ -10,335 +9,290 @@ ACK = '0000110'  # ASCII code for ACK
 NACK = '0010101'  # ASCII code for NACK (NAK)
 
 
-# Nerror_rate = 0.01
-
-
-# parametry zakłócenia, ARQ, error detection, różne sposoby zakłócenia, podział na paczki
-# statystyki czy wykryto wszystkie błędy, liczba błędów,
 class PC:
-    def __init__(self, name):
-        self.name = name  # computer name
-        self.buffered_data = []  # buffered memory
-        self.original_data = []  # original data generated for transmission (for comparison)
-        self.received_data = []  # received data if correct and with ACK
-        self.different_data = [] # different data received with ACK
-        self.final_data = []     # received data
-        self.raw_data = []
-        self.packet_counter = 0  # counts the amount of packets after segmenting data
-        self.packet_size = 15  # maximum size of one packet
-        self.__error_rate = 0.05
-        self.__data_size = 10
-        self.__data_number = 5
-        self.__data_segment_index = 0  # index of the currently sent segment (next segment to be sent)
-        self.__ACK_event = asyncio.Event()  # Event for handling asynchronous events: ACK reception event
-        self.__error_detection_code = 3  # 0 - none, 1 - parity bit, 2 - crc, 3 - md5
-        self.__ARQ_protocol = 2  # 0 - UDP, 1 - stop&wait, 2 - go back N, 3 - selective repeat
+    def __init__(self, name, packet_size=32):
+        self.name = name
+        self.packet_size = packet_size
+        self.sent_data = []
+        self.sent_data_no_retr = []
+        self.received_data = []
+        self.ack_data = []
+        self.nack_data = []
+        self.acknowledged_packets = []  # List to store acknowledged packets
+        self.retransmissions = 0
 
-    # Function to generate data and store it in the original_data array - raw data to be sent
-    def generate_data(self):
-        for i in range(self.__data_number):
-            generated_data = generate_bit_string(self.__data_size)
-            self.original_data.append(generated_data)
-        start_index = len(self.original_data) - self.__data_number
-        end_index = len(self.original_data)
-        return self.original_data[start_index:end_index]
+    def send_data(self, data, packet_number, protocol, error_rate, first_attempt=True):
+        if protocol == 'parity':
+            data_with_check = add_parity_bit(data)
+        elif protocol == 'crc':
+            data_with_check = add_crc(data)
+        elif protocol == 'md5':
+            data_with_check = add_md5(data)
+        elif protocol == 'none':
+            data_with_check = data
+        else:
+            raise ValueError("Unsupported protocol")
 
-    # Function to split a big amount of data into smaller packages
-    def packetize_data(self, data):
+        self.sent_data.append(data_with_check)
+
+        if first_attempt:
+            self.sent_data_no_retr.append(data_with_check)
+
+        if not first_attempt:
+            self.retransmissions += 1
+
+        packet_data = data_with_check  # Only data and checksum are transmitted with errors
+        transmitted_data = f"{packet_number:08d}" + transmit(packet_data, error_rate)
+        print(f"{self.name}: send data {packet_number}: {data_with_check}")
+        return transmitted_data
+
+    def receive_data(self, packet, protocol, error_rate):
+        packet_number = packet[:8]
+        data = packet[8:]
+
+        self.received_data.append(data)  # Save all received packets
+
+        if protocol == 'parity':
+            is_valid = verify_parity_bit(data)
+        elif protocol == 'crc':
+            is_valid = verify_crc(data)
+        elif protocol == 'md5':
+            is_valid = verify_md5(data)
+        elif protocol == 'none':
+            is_valid = True
+        else:
+            raise ValueError("Unsupported protocol")
+
+        if is_valid:
+            ack = ACK
+            self.ack_data.append(data)
+            print(f"{self.name}: received data {packet_number}: {data}")
+            return transmit(ack, error_rate) + data, int(packet_number)  # Simulate ACK transmission error
+        else:
+            ack = NACK
+            self.nack_data.append(data)
+            print(f"{self.name}: received corrupted data {data}")
+            return transmit(ack, error_rate), int(packet_number)
+
+    def packetize_data(self, data_list):
         packets = []
-        packet = ''
-        for pkt in data:                # Loop iterating through packets in data
+        packet_number = 1
+        for data in data_list:
             packet = ''
-            for i in range(len(pkt)):   # Loop iterating through each element in packet (pkt)
-                packet += pkt[i]
+            for i in range(len(data)):
+                packet += data[i]
                 if len(packet) == self.packet_size:
-                    packets.append(packet)
+                    packets.append((packet, packet_number))
                     packet = ''
-            if self.packet_size%len(pkt) != 0 \
-                    and len(pkt) >= self.packet_size \
-                    and packet != '':    # Adding leftover symbols as a new packet
-                packets.append(packet)
-                self.packet_counter += 1
+                    packet_number += 1
+            if packet:
+                packets.append((packet, packet_number))
+                packet_number += 1
         return packets
 
-    # Function to select and add control sum bits for transmission from the original_data array
-    async def send_data(self, receiver):
-        start_index = len(self.original_data)
-        data_to_send = self.generate_data()  # Generating data to be sent
-        self.raw_data = self.original_data[:]
-        if self.__data_size<=self.packet_size:  # If data in range of maximum packet size
-            end_index = len(self.original_data)
+
+def stop_and_wait(sender, receiver, data_list, protocol, error_rate):
+    packets = sender.packetize_data(data_list)
+    for data, packet_number in packets:
+        first_attempt = True
+        while True:
+            transmitted_data = sender.send_data(data, packet_number, protocol, error_rate, first_attempt)
+            ack, received_packet_number = receiver.receive_data(transmitted_data, protocol, error_rate)
+
+            print(f"{receiver.name}: sending {ack}")
+            if ack[:len(ACK)] == ACK:
+                print(f"{sender.name}: received ACK. Transmission successful.")
+                sender.acknowledged_packets.append(ack[len(ACK):])  # Append the original data from receiver
+                break
+            else:
+                print(f"{sender.name}: received NACK. Resending data..")
+                first_attempt = False  # Mark as a retransmission
+
+    print_final(sender, receiver)
+
+
+def go_back_n(sender, receiver, data_list, protocol, error_rate, window_size):
+    packets = sender.packetize_data(data_list)
+    base = 1
+    next_seq_num = base
+    packet_count = len(packets)
+    sent_packets = {}
+
+    while base <= packet_count:
+        while next_seq_num < base + window_size and next_seq_num <= packet_count:
+            data, packet_number = packets[next_seq_num - 1]
+            sent_packets[next_seq_num] = sender.send_data(data, packet_number, protocol, error_rate,
+                                                          first_attempt=(next_seq_num not in sent_packets))
+            next_seq_num += 1
+
+        ack, received_packet_number = receiver.receive_data(sent_packets[base], protocol, error_rate)
+
+        print(f"{receiver.name}: sending {ack}")
+        if ack[:len(ACK)] == ACK:
+            print(f"{sender.name}: received ACK for packet {base}.")
+            sender.acknowledged_packets.append(ack[len(ACK):])  # Append the original data from receiver
+            base += 1
         else:
-            self.original_data = self.packetize_data(self.original_data)
-            end_index = len(self.original_data)
-        gap = self.__data_segment_index - start_index  # difference between indices for index synchronization
-        while start_index < end_index:
-            # preparing data for transmission
-            if self.__error_detection_code == 1:
-                self.buffered_data.append(add_parity_bit(self.original_data[start_index]))
-            elif self.__error_detection_code == 2:
-                self.buffered_data.append(add_crc(self.original_data[start_index]))
-            elif self.__error_detection_code == 3:
-                self.buffered_data.append(add_md5(self.original_data[start_index]))
-            else:
-                self.buffered_data.append(self.original_data[start_index])
+            print(f"{sender.name}: received NACK for packet {base}. Resending window starting from packet {base}.")
+            next_seq_num = base  # Reset the next sequence number to the base
 
-            # transmitting data segment
-
-            await self.data_sending(receiver, self.buffered_data[self.__data_segment_index], self.__data_segment_index)
+    print_final(sender, receiver)
 
 
-            self.__data_segment_index += 1  # incrementing the data segment index for transmission
+def selective_repeat(sender, receiver, data_list, protocol, error_rate, window_size):
+    packets = sender.packetize_data(data_list)
+    base = 1
+    next_seq_num = base
+    packet_count = len(packets)
+    sent_packets = {}
+    acked_packets = set()
 
-            if self.__ARQ_protocol == 1:
-                await self.__ACK_event.wait()  # waiting for ACK reception for ARQ: STOP & WAIT
+    while base <= packet_count:
+        while next_seq_num < base + window_size and next_seq_num <= packet_count:
+            data, packet_number = packets[next_seq_num - 1]
+            sent_packets[next_seq_num] = sender.send_data(data, packet_number, protocol, error_rate,
+                                                          first_attempt=(next_seq_num not in sent_packets))
+            next_seq_num += 1
 
-            start_index = self.__data_segment_index - gap  # incrementing start_index for data transmission by gap
+        ack, received_packet_number = receiver.receive_data(sent_packets[base], protocol, error_rate)
 
-    # Function to send a segment
-    async def data_sending(self, receiver, data, index):
-        # Simulating data transmission
-        print(f"{self.name} sending data to {receiver.name}:    {data}")
-        data = transmit(data, self.__error_rate)  # Simulating transmission with error probability
-        await asyncio.sleep(0)  # Simulating transmission time
-        await receiver.receive_data(self, data, index)  # Calling the receive_data method on the receiver object
-
-    async def receive_data(self, sender, data, index):
-        self.__data_segment_index = index
-        print(f"{self.name} received data from {sender.name}: {data}")
-        await asyncio.sleep(0)  # Simulating transmission time
-        if self.__ARQ_protocol != 0:
-            if self.__error_detection_code == 1:
-                if verify_parity_bit(data):
-                    await self.send_ACK(sender, index, data)
-                    self.buffered_data.append(data)
-                    self.final_data.append(data[:-1])
-                else:
-                    await self.send_NACK(sender, index, 0)
-            elif self.__error_detection_code == 2:
-                if verify_crc(data):
-                    await self.send_ACK(sender, index, data)
-                    self.buffered_data.append(data)
-                    self.final_data.append(data[:-32])
-                else:
-                    await self.send_NACK(sender, index, 0)
-            elif self.__error_detection_code == 3:
-                if verify_md5(data):
-                    await self.send_ACK(sender, index, data)
-                    self.buffered_data.append(data)
-                    self.final_data.append(data[:-128])
-                else:
-                    await self.send_NACK(sender, index, 0)
-            else:
-                self.buffered_data.append(data)
-                self.final_data.append(data)
+        print(f"{receiver.name}: sending {ack}")
+        if ack[:len(ACK)] == ACK:
+            print(f"{sender.name}: received ACK for packet {received_packet_number}.")
+            acked_packets.add(received_packet_number)
+            sender.acknowledged_packets.append(ack[len(ACK):])  # Append the original data from receiver
+            while base in acked_packets:
+                base += 1
         else:
-            self.final_data.append(data)
+            print(
+                f"{sender.name}: received NACK for packet {received_packet_number}. Resending packet {received_packet_number}.")
+            data, packet_number = packets[received_packet_number - 1]
+            sent_packets[received_packet_number] = sender.send_data(data, packet_number, protocol, error_rate,
+                                                                    first_attempt=False)
 
-    async def send_NACK(self, receiver, index, data):
-        print(f"{self.name} is sending NACK. Data segment index: {index}")
-        await receiver.receive_CK(self, index, transmit(NACK, self.__error_rate), False, data)
-
-    async def send_ACK(self, receiver, index, data):
-        print(f"{self.name} is sending ACK. Data segment index: {index}")
-        await receiver.receive_CK(self, index, transmit(ACK, self.__error_rate), True, data)
-
-    async def receive_CK(self, sender, index, transmitted, _ACK_NACK, data):
-        await asyncio.sleep(0)
-        print(f"{self.name} received {transmitted}. Data segment index: {index}")
-        if transmitted == ACK:
-            print(f"{self.name} received ACK. Data segment index: {index}\n")
-            if self.__ARQ_protocol == 1:
-                self.__ACK_event.set()
-
-            if self.__error_detection_code == 1:
-                if data[:-1] == self.original_data[index]:
-                    sender.received_data.append(data[:-1])
-                else:
-                    sender.different_data.append(data[:-1])
-
-            elif self.__error_detection_code == 2:
-
-                if data[:-32] == self.original_data[index]:
-                    sender.received_data.append(data[:-32])
-                else:
-                    sender.different_data.append(data[:-32])
-
-            elif self.__error_detection_code == 3:
-                convertmd5 = str(data)
-                if convertmd5[:-128] == self.original_data[index]:
-                    sender.received_data.append(convertmd5[:-128])
-                else:
-                    sender.different_data.append(convertmd5[:-128])
-
-        else:
-            if transmitted == NACK:
-                print(f"{self.name} received NACK. Data segment index: {index}")
-            else:
-                print("ACK/NACK has been corrupted!")
-
-            if self.__ARQ_protocol == 3 or self.__ARQ_protocol == 1:
-                print(f"Resending data. Data segment index: {index}\n")
-                await self.data_sending(sender, self.buffered_data[index], index)
-            elif self.__ARQ_protocol == 2:
-                self.buffered_data.pop(index)
-                print(f"Go back {index} and resending all data.")
-                self.__data_segment_index = index - 1
-
-    def get_data_size(self):
-        return self.__data_size
-
-    def reset(self):
-        self.buffered_data = []
-        self.original_data = []
-        self.received_data = []
-        self.raw_data = []
-        self.final_data = []
-        self.__data_segment_index = 0
-        self.packet_counter = 0
-
-    def print_buffered_data(self):
-        print(self.buffered_data)
-
-    def set_error_rate(self, error_rate):
-        try:
-            self.__error_rate = error_rate
-        except ValueError:
-            print("Invalid input. Please enter a valid number.")
-
-    def set_data_size(self, data_size):
-        try:
-            self.__data_size = data_size
-        except ValueError:
-            print("Invalid input. Please enter a valid number.")
-
-    def set_data_number(self, data_number):
-        try:
-            self.__data_number = data_number
-        except ValueError:
-            print("Invalid input. Please enter a valid number.")
-
-    def set_arq_protocol(self, protocol):
-        try:
-            if protocol in {0, 1, 2, 3}:
-                self.__ARQ_protocol = protocol
-            else:
-                print("Invalid protocol. Default protocol set. (UDP)")
-                self.__ARQ_protocol = 0
-        except ValueError:
-            print("Invalid input. Default protocol set. (UDP)")
-            self.__ARQ_protocol = 0
-
-    def set_error_detection_code(self, detection_code):
-        try:
-            if detection_code in {0, 1, 2, 3}:
-                self.__error_detection_code = detection_code
-            else:
-                print("Invalid error detection code. Default error detection code set. (parity bit)")
-                self.__error_detection_code = 1
-        except ValueError:
-            print("Invalid input. Default error detection code set. (parity bit)")
-            self.__error_detection_code = 1
-
-    def set_packet_size(self, packet_size):
-        try:
-            self.packet_size = packet_size
-        except ValueError:
-            print("Invalid input. Please enter a valid number.")
-
-    def display_current_settings(self):
-        print(f"\n--- Current Settings ---")
-        print(f"Error Rate: {self.__error_rate}")
-        print(f"Data Size: {self.__data_size}")
-        print(f"Number of Data: {self.__data_number}")
-        print(f"ARQ Protocol: {self.__ARQ_protocol}")
-        print(f"Error Detection Code: {self.__error_detection_code}")
+    print_final(sender, receiver)
 
 
-# drukowanie wysłanych i odebranych danych do porównania
-async def print_transmition_data(sender, receiver):
-    print(f"\nOriginal data by {sender.name}:                        {sender.raw_data}")  # Displaying data sent by PC1
-    print(f"Received correct data with ACK by {receiver.name}:       {receiver.received_data}")  # Displaying data received by PC2
-    print(f"Received other data with ACK by {receiver.name}:         {receiver.different_data}")
-    print(f"Received data with (un)corrupted ACK by {receiver.name}: {receiver.final_data}")
+def udp_transmission(sender, receiver, data_list, protocol, error_rate):
+    packets = sender.packetize_data(data_list)
+    for data, packet_number in packets:
+        transmitted_data = sender.send_data(data, packet_number, protocol, error_rate)
+        receiver.receive_data(transmitted_data, protocol, error_rate)
+    print_final(sender, receiver)
 
 
-async def compare_data(sender, receiver):
-    original_data = sender.original_data
-    received_data = receiver.received_data
-
-    if len(original_data) != len(received_data):
-        print("The data arrays have different lengths.")
-        return
-
-    total_elements = len(original_data)
-    duplicated_elements = len(receiver.final_data) - total_elements
-    same_elements = sum(1 for o, r in zip(original_data, received_data) if o == r)
-    different_elements = total_elements - same_elements
+def print_final(sender, receiver):
+    print("\nFinal State:")
+    print(f"{sender.name} sent data: {sender.sent_data}")
+    print(f"{sender.name} sent data without retransmissions: {sender.sent_data_no_retr}")
+    print(f"{sender.name} acknowledged packets: {sender.acknowledged_packets}")
+    print(f"{receiver.name} received data: {receiver.received_data}")
+    print(f"{receiver.name} ACK data: {receiver.ack_data}")
+    print(f"{receiver.name} NACK data: {receiver.nack_data}")
+    analyze_transmission(sender, receiver)
 
 
-    print(f"Total transmitted data: {total_elements}")
-    print(f"Number of successfully transmitted data: {same_elements}")
-    print(f"Number of incorrectly transmitted data: {different_elements}")
-    print(f"Number of transmitted duplicates : {duplicated_elements}")
+def analyze_transmission(sender, receiver):
+    packets_to_sent = len(sender.sent_data_no_retr)
+    total_packets_sent = len(sender.sent_data)
+    total_retransmissions = sender.retransmissions
+    total_packets_received = len(receiver.received_data)
+    correctly_received_packets = len(receiver.ack_data)
+    corrupted_packets = len(receiver.nack_data)
+    success_rate = correctly_received_packets / total_packets_sent if total_packets_sent else 0
+    corruption_rate = corrupted_packets / total_packets_received if total_packets_received else 0
+    correctly_received_packets_correct_ACK_to_sender = len(sender.acknowledged_packets)
+    success_rate_based_on_sender_ACK = correctly_received_packets_correct_ACK_to_sender / total_packets_sent if total_packets_sent else 0
+
+    same_elements_count = sum(1 for sent, ack in zip(sender.sent_data_no_retr, sender.acknowledged_packets) if sent == ack)
+    different_elements_count = len(sender.sent_data_no_retr) - same_elements_count
+    rate = same_elements_count / packets_to_sent if packets_to_sent else 0
+
+    print("\nTransmission Analysis:")
+    print(f"The number of packets the sender wanted to send: {packets_to_sent}")
+    print(f"Total packets sent by sender: {total_packets_sent}")
+    print(f"Total retransmissions sent by sender: {total_retransmissions}")
+    print(f"Total packets received by receiver: {total_packets_received}")  # for go-back-n the number is less than the sent packets because when nack appears, receiver waits for retransmission, does not analyze subsequent sent packets
+
+    print(f"Correctly received packets by receiver: {correctly_received_packets}")
+    print(f"Corrupted packets received by receiver: {corrupted_packets}")
+
+    print(f"Number of packets that sender received ACK for: {correctly_received_packets_correct_ACK_to_sender}")
+    print(f"Success rate based on ACK sent by receiver: {success_rate * 100:.2f}%")
+    print(f"Corruption rate based on NACK sent by receiver: {corruption_rate * 100:.2f}%")
+    print(f"Success rate based on ACK received by sender: {success_rate_based_on_sender_ACK * 100:.2f}%")
+
+    print(f"Number of error-free transsmited data: {same_elements_count}")
+    print(f"Number of transsmited data with error: {different_elements_count}")
+    print(f"Rate of error-free transsmited data / all data: {rate* 100:.2f}%")
 
 
-async def main():
-    pc1 = PC("PC1")
-    pc2 = PC("PC2")
+def display_settings(transmission_error_rate, error_detection_code, arq_protocol, packet_length, num_packets,
+                     window_size):
+    print("\nCurrent Settings:")
+    print(f"Transmission error rate: {transmission_error_rate}")
+    print(f"Error Detection Code: {error_detection_code}")
+    print(f"ARQ Protocol: {arq_protocol}")
+    print(f"Length of each packet: {packet_length}")
+    print(f"Number of packets to generate: {num_packets}")
+    print(f"Window size: {window_size}")
+
+
+def main():
+    transmission_error_rate = 0.05
+    error_detection_code = 'parity'
+    arq_protocol = 'Stop-and-Wait'
+    packet_length = 10
+    num_packets = 50000
+    window_size = 3
 
     while True:
-        print("\n--- Menu ---")
-        print("1. Set Error Rate")
-        print("2. Set Error Detection Code")
-        print("3. Set ARQ Protocol")
-        print("4. Set Data Size")
-        print("5. Set Number Of Data")
-        print("6. Set Maximum Packet Size")
+        print("\nARQ Protocol Simulation")
+        print("1. Set transmission error rate")
+        print("2. Set Error Detection Code (parity, crc, md5, none)")
+        print("3. Set ARQ Protocol (Stop-and-Wait, Go-Back-N, Selective Repeat, UDP)")
+        print("4. Set length of each packet")
+        print("5. Set number of packets to generate")
+        print("6. Set window size")
         print("7. Run Data Transmission")
-        print("8. Display Current Settings")
+        print("8. Display current settings")
         print("9. Exit")
-        choice = input("Enter your choice (1-9): ")
+        choice = input("Choose an option (1-9): ")
 
         if choice == '1':
-            error_rate = float(input("Enter error rate (as a number between 0 and 1): "))
-            pc1.set_error_rate(error_rate)
-            pc2.set_error_rate(error_rate)
+            transmission_error_rate = float(input("Enter the transmission error rate (0.0 to 1.0): "))
         elif choice == '2':
-            detection_code = int(input("Choose error_detection_code:\n0 - none, 1 - parity bit, 2 - crc, 3 - md5: "))
-            pc1.set_error_detection_code(detection_code)
-            pc2.set_error_detection_code(detection_code)
+            error_detection_code = input("Enter Error Detection Code (parity, crc, md5): ")
         elif choice == '3':
-            protocol = int(
-                input("Choose ARQ protocol: \n0 - UDP, 1 - stop&wait, 2 - go-back-N, 3 - selective repeat: "))
-            pc1.set_arq_protocol(protocol)
-            pc2.set_arq_protocol(protocol)
+            arq_protocol = input("Enter ARQ Protocol (Stop-and-Wait, Go-Back-N, Selective Repeat, UDP): ")
         elif choice == '4':
-            data_size = int(input("Enter data size (as a positive integer): "))
-            pc1.set_data_size(data_size)
-            pc2.set_data_size(data_size)
+            packet_length = int(input("Enter the length of each packet: "))
         elif choice == '5':
-            data_number = int(input("Enter number of data (as a positive integer): "))
-            pc1.set_data_number(data_number)
-            pc2.set_data_number(data_number)
+            num_packets = int(input("Enter the number of packets to generate: "))
         elif choice == '6':
-            packet_size = int(input("Enter number of data (as a positive integer): "))
-            pc1.set_packet_size(packet_size)
-            pc2.set_packet_size(packet_size)
+            window_size = int(input("Enter the window size: "))
         elif choice == '7':
-            pc1.reset()
-            pc2.reset()
-            data = pc1.get_data_size()
-            await pc1.send_data(pc2)  # Sending data from PC1 to PC2
-            await print_transmition_data(pc1, pc2)
-            await compare_data(pc1, pc2)
+            data_list = [generate_bit_string(packet_length) for _ in range(num_packets)]
+            sender = PC("Sender")
+            receiver = PC("Receiver")
+            if arq_protocol == 'Stop-and-Wait':
+                stop_and_wait(sender, receiver, data_list, protocol=error_detection_code, error_rate=transmission_error_rate)
+            elif arq_protocol == 'Go-Back-N':
+                go_back_n(sender, receiver, data_list, protocol=error_detection_code, error_rate=transmission_error_rate, window_size=window_size)
+            elif arq_protocol == 'Selective Repeat':
+                selective_repeat(sender, receiver, data_list, protocol=error_detection_code, error_rate=transmission_error_rate, window_size=window_size)
+            elif arq_protocol == 'UDP':
+                udp_transmission(sender, receiver, data_list, protocol=error_detection_code, error_rate=transmission_error_rate)
+            else:
+                print("Invalid ARQ Protocol. Please try again.")
         elif choice == '8':
-            pc1.display_current_settings()
+            display_settings(transmission_error_rate, error_detection_code, arq_protocol, packet_length, num_packets,
+                             window_size)
         elif choice == '9':
-            print("Exiting...")
             break
         else:
-            print("Invalid choice. Please select a valid option.")
+            print("Invalid choice. Please try again.")
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    main()
