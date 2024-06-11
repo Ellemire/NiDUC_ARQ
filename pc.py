@@ -3,6 +3,7 @@ from parity_bit import add_parity_bit, verify_parity_bit
 from crc import add_crc, verify_crc
 from md5 import add_md5, verify_md5
 import sys
+import csv
 
 sys.setrecursionlimit(100000)
 ACK = '0000110'  # ASCII code for ACK
@@ -10,7 +11,7 @@ NACK = '0010101'  # ASCII code for NACK (NAK)
 
 
 class PC:
-    def __init__(self, name, packet_size=32):
+    def __init__(self, name, packet_size=128):
         self.name = name
         self.packet_size = packet_size
         self.sent_data = []
@@ -121,8 +122,7 @@ def go_back_n(sender, receiver, data_list, protocol, error_rate, window_size):
     while base <= packet_count:
         while next_seq_num < base + window_size and next_seq_num <= packet_count:
             data, packet_number = packets[next_seq_num - 1]
-            sent_packets[next_seq_num] = sender.send_data(data, packet_number, protocol, error_rate,
-                                                          first_attempt=(next_seq_num not in sent_packets))
+            sent_packets[next_seq_num] = sender.send_data(data, packet_number, protocol, error_rate, first_attempt=(next_seq_num not in sent_packets))
             next_seq_num += 1
 
         ack, received_packet_number = receiver.receive_data(sent_packets[base], protocol, error_rate)
@@ -150,8 +150,7 @@ def selective_repeat(sender, receiver, data_list, protocol, error_rate, window_s
     while base <= packet_count:
         while next_seq_num < base + window_size and next_seq_num <= packet_count:
             data, packet_number = packets[next_seq_num - 1]
-            sent_packets[next_seq_num] = sender.send_data(data, packet_number, protocol, error_rate,
-                                                          first_attempt=(next_seq_num not in sent_packets))
+            sent_packets[next_seq_num] = sender.send_data(data, packet_number, protocol, error_rate, first_attempt=(next_seq_num not in sent_packets))
             next_seq_num += 1
 
         ack, received_packet_number = receiver.receive_data(sent_packets[base], protocol, error_rate)
@@ -167,8 +166,7 @@ def selective_repeat(sender, receiver, data_list, protocol, error_rate, window_s
             print(
                 f"{sender.name}: received NACK for packet {received_packet_number}. Resending packet {received_packet_number}.")
             data, packet_number = packets[received_packet_number - 1]
-            sent_packets[received_packet_number] = sender.send_data(data, packet_number, protocol, error_rate,
-                                                                    first_attempt=False)
+            sent_packets[received_packet_number] = sender.send_data(data, packet_number, protocol, error_rate, first_attempt=False)
 
     print_final(sender, receiver)
 
@@ -227,8 +225,7 @@ def analyze_transmission(sender, receiver):
     print(f"Rate of error-free transsmited data / all data: {rate* 100:.2f}%")
 
 
-def display_settings(transmission_error_rate, error_detection_code, arq_protocol, packet_length, num_packets,
-                     window_size):
+def display_settings(transmission_error_rate, error_detection_code, arq_protocol, packet_length, num_packets, window_size):
     print("\nCurrent Settings:")
     print(f"Transmission error rate: {transmission_error_rate}")
     print(f"Error Detection Code: {error_detection_code}")
@@ -286,8 +283,7 @@ def main():
             else:
                 print("Invalid ARQ Protocol. Please try again.")
         elif choice == '8':
-            display_settings(transmission_error_rate, error_detection_code, arq_protocol, packet_length, num_packets,
-                             window_size)
+            display_settings(transmission_error_rate, error_detection_code, arq_protocol, packet_length, num_packets, window_size)
         elif choice == '9':
             break
         else:
