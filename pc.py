@@ -194,6 +194,7 @@ def analyze_transmission(sender, receiver):
     packets_to_sent = len(sender.sent_data_no_retr)
     total_packets_sent = len(sender.sent_data)
     total_retransmissions = sender.retransmissions
+    retranssmision_rate = total_retransmissions / total_packets_sent
     total_packets_received = len(receiver.received_data)
     correctly_received_packets = len(receiver.ack_data)
     corrupted_packets = len(receiver.nack_data)
@@ -210,6 +211,7 @@ def analyze_transmission(sender, receiver):
     print(f"The number of packets the sender wanted to send: {packets_to_sent}")
     print(f"Total packets sent by sender: {total_packets_sent}")
     print(f"Total retransmissions sent by sender: {total_retransmissions}")
+    print(f"Retransmission rate: {retranssmision_rate * 100:.2f}%")
     print(f"Total packets received by receiver: {total_packets_received}")  # for go-back-n the number is less than the sent packets because when nack appears, receiver waits for retransmission, does not analyze subsequent sent packets
 
     print(f"Correctly received packets by receiver: {correctly_received_packets}")
