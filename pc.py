@@ -4,6 +4,7 @@ from crc import add_crc, verify_crc
 from md5 import add_md5, verify_md5
 import sys
 import csv
+from collections import Counter
 
 sys.setrecursionlimit(100000)
 ACK = '0000110'  # ASCII code for ACK
@@ -239,9 +240,14 @@ def analyze_transmission(sender, receiver):
     correctly_received_packets_correct_ACK_to_sender = len(sender.acknowledged_packets)  # Number of correctly received packets based on sender's ACKs
     success_rate_based_on_sender_ACK = correctly_received_packets_correct_ACK_to_sender / total_packets_sent if total_packets_sent else 0  # Success rate based on sender's ACKs
 
-    # Compare sent packets and acknowledged packets
-    same_elements_count = sum(1 for sent, ack in zip(sender.sent_data_no_retr, sender.acknowledged_packets) if sent == ack)  # Count of packets that match between sent and acknowledged
-    different_elements_count = len(sender.sent_data_no_retr) - same_elements_count  # Count of packets that do not match
+    # Compare sent packets and acknowledged packets using Counter
+    sent_counter = Counter(sender.sent_data_no_retr)
+    ack_counter = Counter(sender.acknowledged_packets)
+
+    # Find common elements and their counts
+    common_elements = sent_counter & ack_counter
+    same_elements_count = sum(common_elements.values())  # Count of packets that match between sent and acknowledged
+    different_elements_count = packets_to_sent - same_elements_count  # Count of packets that do not match
     rate = same_elements_count / packets_to_sent if packets_to_sent else 0  # Rate of successfully acknowledged packets
 
     print("\nTransmission Analysis:")
@@ -275,11 +281,11 @@ def display_settings(transmission_error_rate, error_detection_code, arq_protocol
 
 
 def main():
-    transmission_error_rate = 0.05
+    transmission_error_rate = 0.01
     error_detection_code = 'parity'
-    arq_protocol = 'UDP'
+    arq_protocol = 'Stop-and-Wait'
     packet_length = 10
-    num_packets = 10
+    num_packets = 100
     window_size = 3
 
     while True:
