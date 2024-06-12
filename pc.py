@@ -163,8 +163,7 @@ def selective_repeat(sender, receiver, data_list, protocol, error_rate, window_s
             while base in acked_packets:
                 base += 1
         else:
-            print(
-                f"{sender.name}: received NACK for packet {received_packet_number}. Resending packet {received_packet_number}.")
+            print(f"{sender.name}: received NACK for packet {received_packet_number}. Resending packet {received_packet_number}.")
             data, packet_number = packets[received_packet_number - 1]
             sent_packets[received_packet_number] = sender.send_data(data, packet_number, protocol, error_rate, first_attempt=False)
 
@@ -176,6 +175,7 @@ def udp_transmission(sender, receiver, data_list, protocol, error_rate):
     for data, packet_number in packets:
         transmitted_data = sender.send_data(data, packet_number, protocol, error_rate)
         receiver.receive_data(transmitted_data, protocol, error_rate)
+    sender.acknowledged_packets = receiver.ack_data
     print_final(sender, receiver)
 
 

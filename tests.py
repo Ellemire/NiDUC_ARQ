@@ -14,7 +14,7 @@ class Tests:
 
     def run_tests(self):
         with open('test_results.csv', 'w', newline='') as csvfile:
-            fieldnames = ['Error Rate', 'Packet Size', 'Error Detection Code', 'ARQ Protocol', 'Window Size', 'Success Rate']
+            fieldnames = ['Error Rate', 'Packet Size', 'Error Detection Code', 'ARQ Protocol', 'Window Size', 'Success Rate', 'Overhead', 'Errors']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter=';')
             writer.writeheader()
 
@@ -28,7 +28,7 @@ class Tests:
                     self.run_single_test(writer, error_rate, packet_size, error_detection_code, arq_protocol, 'N/A')
 
     def run_single_test(self, writer, error_rate, packet_size, error_detection_code, arq_protocol, window_size):
-        data_list = [generate_bit_string(packet_size) for _ in range(1000)]  # generate 1000 packets
+        data_list = [generate_bit_string(packet_size) for _ in range(50000)]  # generate 50000 packets
         sender = PC("Sender", packet_size=packet_size)
         receiver = PC("Receiver", packet_size=packet_size)
 
@@ -43,9 +43,14 @@ class Tests:
         else:
             raise ValueError("Unsupported ARQ Protocol")
 
-        success_rate = len(sender.acknowledged_packets) / len(data_list) if len(data_list) else 0
+        success_rate = len(receiver.ack_data) / len(sender.sent_data) if len(sender.sent_data) else 0
+        number_of_incorect_ack_data = 0
+        same_elements_count = sum(1 for sent, ack in zip(sender.sent_data_no_retr, sender.acknowledged_packets) if sent == ack)
+        number_of_incorect_ack_data = len(sender.sent_data_no_retr) - same_elements_count
+        overhead = len(sender.sent_data)
+
         writer.writerow({'Error Rate': error_rate, 'Packet Size': packet_size, 'Error Detection Code': error_detection_code, 'ARQ Protocol': arq_protocol,
-                         'Window Size': window_size, 'Success Rate': success_rate})
+                         'Window Size': window_size, 'Success Rate': success_rate, 'Overhead': overhead, 'Errors': number_of_incorect_ack_data})
 
 if __name__ == "__main__":
     tests = Tests()
