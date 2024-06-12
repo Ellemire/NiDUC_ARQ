@@ -2,7 +2,7 @@ import csv
 from itertools import product
 from utils import generate_bit_string
 from pc import PC, stop_and_wait, go_back_n, selective_repeat, udp_transmission
-
+from collections import Counter
 
 class Tests:
     def __init__(self):
@@ -44,11 +44,17 @@ class Tests:
             raise ValueError("Unsupported ARQ Protocol")
 
         #Analize transmition
+        packets_to_sent = len(sender.sent_data_no_retr)
         number_of_packet_send = len(sender.sent_data)
         success_rate = len(sender.acknowledged_packets) / number_of_packet_send if number_of_packet_send else 0
-        same_elements_count = sum(1 for sent, ack in zip(sender.sent_data_no_retr, sender.acknowledged_packets) if sent == ack)
-        packets_to_sent = len(sender.sent_data_no_retr)
-        rate = (same_elements_count / packets_to_sent if packets_to_sent else 0) * 100
+
+        sent_counter = Counter(sender.sent_data_no_retr)
+        ack_counter = Counter(sender.acknowledged_packets)
+
+        # Find common elements and their counts
+        common_elements = sent_counter & ack_counter
+        same_elements_count = sum(common_elements.values())  # Count of packets that match between sent and acknowledged
+        rate = same_elements_count / packets_to_sent if packets_to_sent else 0  # Rate of successfully acknowledged packets
         total_retransmissions = sender.retransmissions
         retranssmision_rate = total_retransmissions / number_of_packet_send
 
