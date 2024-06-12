@@ -14,7 +14,7 @@ class Tests:
 
     def run_tests(self):
         with open('test_results.csv', 'w', newline='') as csvfile:
-            fieldnames = ['Error Rate', 'Packet Size', 'Error Detection Code', 'ARQ Protocol', 'Window Size', 'Success Rate', 'Overhead', 'Errors']
+            fieldnames = ['Error Rate', 'Packet Size', 'Error Detection Code', 'ARQ Protocol', 'Window Size', 'Success Rate', 'Total packet send', 'Incorrect ACK', 'Retransmition rate']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter=';')
             writer.writeheader()
 
@@ -43,14 +43,24 @@ class Tests:
         else:
             raise ValueError("Unsupported ARQ Protocol")
 
-        success_rate = len(receiver.ack_data) / len(sender.sent_data) if len(sender.sent_data) else 0
-        number_of_incorect_ack_data = 0
+        #Analize transmition
+        number_of_packet_send = len(sender.sent_data)
+        success_rate = len(sender.acknowledged_packets) / number_of_packet_send if number_of_packet_send else 0
         same_elements_count = sum(1 for sent, ack in zip(sender.sent_data_no_retr, sender.acknowledged_packets) if sent == ack)
-        number_of_incorect_ack_data = len(sender.sent_data_no_retr) - same_elements_count
-        overhead = len(sender.sent_data)
+        packets_to_sent = len(sender.sent_data_no_retr)
+        rate = (same_elements_count / packets_to_sent if packets_to_sent else 0) * 100
+        total_retransmissions = sender.retransmissions
+        retranssmision_rate = total_retransmissions / number_of_packet_send
 
-        writer.writerow({'Error Rate': error_rate, 'Packet Size': packet_size, 'Error Detection Code': error_detection_code, 'ARQ Protocol': arq_protocol,
-                         'Window Size': window_size, 'Success Rate': success_rate, 'Overhead': overhead, 'Errors': number_of_incorect_ack_data})
+        writer.writerow({'Error Rate': error_rate,
+                         'Packet Size': packet_size,
+                         'Error Detection Code': error_detection_code,
+                         'ARQ Protocol': arq_protocol,
+                         'Window Size': window_size,
+                         'Success Rate': success_rate,
+                         'Total packet send': number_of_packet_send,
+                         'Incorrect ACK': rate,
+                         'Retransmition rate': retranssmision_rate})
 
 if __name__ == "__main__":
     tests = Tests()
