@@ -6,26 +6,28 @@ from collections import Counter
 
 class Tests:
     def __init__(self):
-        self.error_rates = [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5]
-        self.packet_sizes = [10, 20, 40, 80, 160, 320, 640, 1280]
+        self.error_rates = [0.0005, 0.001, 0.005, 0.01, 0.05]  #0.05%, 0.1%, 0.5%, 1%, 5%
+        self.packet_sizes = [10, 50, 100, 200, 300, 400]
         self.error_detection_codes = ['parity', 'crc', 'md5', 'none']
         self.arq_protocols = ['Stop-and-Wait', 'Go-Back-N', 'Selective Repeat', 'UDP']
-        self.window_sizes = [16, 32, 64, 128]
+        self.window_sizes = [10, 20, 50, 100]
 
     def run_tests(self):
-        with open('test_results.csv', 'w', newline='') as csvfile:
-            fieldnames = ['Error Rate', 'Packet Size', 'Error Detection Code', 'ARQ Protocol', 'Window Size', 'Success Rate', 'Total packet send', 'Incorrect ACK', 'Retransmition rate']
+        with open('test_results1.csv', 'w', newline='') as csvfile:
+            fieldnames = ['ARQ Protocol', 'Error Detection Code', 'Window Size', 'Error Rate', 'Packet Size',
+                          'Success Rate', 'Correct ACK', 'Retransmition rate', 'Total packet send']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter=';')
             writer.writeheader()
 
-            for error_rate, packet_size, error_detection_code, arq_protocol in product(
-                    self.error_rates, self.packet_sizes, self.error_detection_codes, self.arq_protocols):
-
-                if arq_protocol in ['Go-Back-N', 'Selective Repeat']:
-                    for window_size in self.window_sizes:
-                        self.run_single_test(writer, error_rate, packet_size, error_detection_code, arq_protocol, window_size)
-                else:
-                    self.run_single_test(writer, error_rate, packet_size, error_detection_code, arq_protocol, 'N/A')
+            for error_detection_code in self.error_detection_codes:
+                for arq_protocol in self.arq_protocols:
+                    for error_rate in self.error_rates:
+                        for packet_size in self.packet_sizes:
+                            if arq_protocol in ['Go-Back-N', 'Selective Repeat']:
+                                for window_size in self.window_sizes:
+                                    self.run_single_test(writer, error_rate, packet_size, error_detection_code, arq_protocol, window_size)
+                            else:
+                                self.run_single_test(writer, error_rate, packet_size, error_detection_code, arq_protocol, 'N/A')
 
     def run_single_test(self, writer, error_rate, packet_size, error_detection_code, arq_protocol, window_size):
         data_list = [generate_bit_string(packet_size) for _ in range(50000)]  # generate 50000 packets
@@ -58,15 +60,16 @@ class Tests:
         total_retransmissions = sender.retransmissions
         retranssmision_rate = total_retransmissions / number_of_packet_send
 
-        writer.writerow({'Error Rate': error_rate,
-                         'Packet Size': packet_size,
-                         'Error Detection Code': error_detection_code,
-                         'ARQ Protocol': arq_protocol,
-                         'Window Size': window_size,
-                         'Success Rate': success_rate,
-                         'Total packet send': number_of_packet_send,
-                         'Incorrect ACK': rate,
-                         'Retransmition rate': retranssmision_rate})
+        writer.writerow({
+                        'ARQ Protocol': arq_protocol,
+                        'Error Detection Code': error_detection_code,
+                        'Window Size': window_size,
+                        'Error Rate': error_rate,
+                        'Packet Size': packet_size,
+                        'Success Rate': success_rate,
+                        'Correct ACK': rate,
+                        'Retransmition rate': retranssmision_rate,
+                        'Total packet send': number_of_packet_send})
 
 if __name__ == "__main__":
     tests = Tests()
